@@ -1,0 +1,13 @@
+# Ignore everything in these directories
+#DataBase/*
+
+#Ignore these files
+#Some_file.py
+
+#Exclude these files from being ignored
+!/DataBase/Download_WikiArt.py
+!/DataBase/Libraries.txt
+
+
+
+
