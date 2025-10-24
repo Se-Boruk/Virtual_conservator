@@ -1,5 +1,11 @@
 from datasets import load_dataset, load_from_disk
 import os
+import numpy as np
+import torch
+from queue import Queue
+import threading
+
+
 
 
 class Custom_DataSet_Manager():
@@ -135,7 +141,127 @@ def Reconstruction_data_tests(train_subset, val_subset, test_subset):
     
     
     
-    
+class Async_DataLoader():
+    def __init__(self, dataset, batch_size=32, num_workers=2, device='cuda', max_queue=10):
+        self.dataset = dataset
+        #Taking sample of from dataset to initialize the shape of images
+        sample_img = np.array(dataset[0]["image"], dtype=np.uint8)
+        self.C, self.H, self.W = sample_img.shape[2], sample_img.shape[0], sample_img.shape[1]
+        
+        self.batch_size = batch_size
+        self.device = torch.device(device)
+        self.queue = Queue(maxsize=max_queue)
+        self.num_workers = num_workers
+
+        #Epoch control
+        self.next_idx = 0               #Next step (batch) idx
+        self.idx_lock = threading.Lock()
+        self.active_workers = 0 
+        self.threads = []
+        self.epoch_event = threading.Event()
+        self.indices = np.arange(len(self.dataset))  #images order in current epoch
+
+        #Preallocate pinned buffers
+        self.pinned_bufs = [torch.empty((self.batch_size, self.C, self.H, self.W), 
+                                        dtype=torch.float32).pin_memory() 
+                            for _ in range(num_workers)]
+        
+        #activate function for loading batches into the queue
+        self._start_prefetch()
+
+    def _start_prefetch(self):
+        
+        def get_chunk():
+            
+            """
+            Functions for getting start idx and end idx of batch 
+            (for indexes list as we shuffle)
+            """
+        
+            #Lock function so we only can acces it from one thread (worker)
+            #It assures that we cannot have the same batch operated twice
+            with self.idx_lock:
+                start = self.next_idx
+                
+                if start >= len(self.dataset):
+                    return None, None
+                
+                end = min(start + self.batch_size, len(self.dataset))
+                self.next_idx = end
+                
+                return start, end
+
+
+        def worker(worker_id):
+            """
+            Function for taking and processing batch. Single worker operation
+            """
+            pinned_buf = self.pinned_bufs[worker_id]
+            while True:
+                #Wait for epoch to start
+                self.epoch_event.wait()
+                while True:
+                    start, end = get_chunk()
+                    if start is None:
+                        break
+                    actual_bs = end - start
+                    for i in range(actual_bs):
+                        idx = self.indices[start + i]
+                        img = np.array(self.dataset[idx]["image"], dtype=np.float32) / 255.0
+                        pinned_buf[i] = torch.from_numpy(img).permute(2,0,1)
+                        
+                        
+                    #Put given batch of imgs in the queue
+                    ###################
+                    # Place to put the operations on batches ( Augmentation / damage etc.)
+                    ##################
+                    self.queue.put(pinned_buf[:actual_bs].clone())
+                    
+                    
+                #One worker done, check if was last worker (so last batch)
+                #If it was last one then put None. It will end the epoch when reached
+                with self.idx_lock:
+                    self.active_workers -= 1
+                    
+                    if self.active_workers == 0:
+                        self.queue.put(None)  ##None at the end ends epoch when reached
+                        self.epoch_event.clear()  #Wait for next epoch with prefetching
+
+        # start worker threads
+        for wid in range(self.num_workers):
+            t = threading.Thread(target=worker, args=(wid,))
+            t.daemon = True
+            t.start()
+            self.threads.append(t)
+
+    def start_epoch(self, shuffle=True):
+        
+        """Start a new epoch. It resets queue and shuffle data."""
+        
+        self.queue.queue.clear()
+        self.next_idx = 0
+        self.active_workers = self.num_workers
+        
+        #Shuffle indexes if specified so they have other order in next epoch
+        if shuffle:
+            np.random.shuffle(self.indices)
+            
+        self.epoch_event.set() #It allows workers to start
+
+    def get_batch(self):
+        """Returns batch next in queue"""
+        
+        batch = self.queue.get()
+        if batch is None:
+            return None
+        
+        return batch.to(self.device, non_blocking=True)
+
+    def get_num_batches(self):
+        
+        """Get number of batches (steps) for given dataset length and batch size"""
+        steps = (len(self.dataset) + self.batch_size - 1) // self.batch_size
+        return steps    
     
     
     
