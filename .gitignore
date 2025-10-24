@@ -7,7 +7,7 @@ __pycache__/*
 
 
 #Exclude these files from being ignored
-!/DataBase/DataBase_manager.py
+!/DataBase/DataBase_Functions.py
 !/DataBase/Libraries.txt
 
 
