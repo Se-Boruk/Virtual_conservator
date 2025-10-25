@@ -1,6 +1,7 @@
 # Ignore everything in these directories
 DataBase/*
 __pycache__/*
+Inpainter/__pycache__
 
 #Ignore these files
 #Some_file.py
