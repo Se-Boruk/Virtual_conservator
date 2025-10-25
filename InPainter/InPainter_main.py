@@ -34,18 +34,11 @@ manager = Custom_DataSet_Manager(DataSet_path = RECONSTRUCTION_DATASET_PATH,
                                  random_state = RANDOM_STATE
                                  )
 
-#Download it if it is not flagged in the folder
-if not manager.is_downloaded():
-    print("DataSet is not present in given folder: Downloading...")
-    manager.download_database(RECONSTRUCTION_DATASET_NAME)
-    Train_set, Val_set, Test_set = manager.load_dataset_from_disk()
-    print("Dataset loaded!")
-    
-else:
-    print("DataSet is present in folder: Loading...")
-    Train_set, Val_set, Test_set = manager.load_dataset_from_disk()
-    print("Dataset loaded!")
-    
+#Download data if not present
+manager.download_database(RECONSTRUCTION_DATASET_NAME)
+#Load dataset
+Train_set, Val_set, Test_set = manager.load_dataset_from_disk()
+
 
 #Run tests to see if operating on data which is the same for all:
 Reconstruction_data_tests(train_subset = Train_set,
@@ -54,11 +47,11 @@ Reconstruction_data_tests(train_subset = Train_set,
                           )
 
 ##########################################################################################
-#Test of train loop with async data processing (damaging and converting into tensors)
+#Preparing dataloaders and hyperparams
 ##########################################################################################
 
 #Hyperparams
-epochs = 10
+epochs = 1
 bs = 32
 n_workers = 4
 max_queue = 10
@@ -69,7 +62,8 @@ train_loader = Async_DataLoader(dataset = Train_set,
                                 batch_size=bs,
                                 num_workers=n_workers,
                                 device='cuda',
-                                max_queue=max_queue
+                                max_queue=max_queue,
+                                add_damaged = True
                                 )
 
 # Validation loader
@@ -77,9 +71,14 @@ val_loader = Async_DataLoader(dataset = Val_set,
                               batch_size=bs,
                               num_workers=n_workers,
                               device='cuda',
-                              max_queue=max_queue
+                              max_queue=max_queue,
+                              add_damaged = True
                               )
 
+
+##########################################################################################
+#Test of train loop with async data processing (damaging and converting into tensors)
+##########################################################################################
 
 for e in range(epochs):
     #################################################
@@ -109,12 +108,13 @@ for e in range(epochs):
             avg_time = sum(batch_train_times) / len(batch_train_times)
             pbar.update(1)
             pbar.set_postfix({"avg_batch_time_ms": f"{avg_time*1000:.2f}"})
+
             
             
     #################################################
     #Validation part
     #################################################
-    val_loader.start_epoch(shuffle=False) # No need for shuffle generally in validation
+    val_loader.start_epoch(shuffle=True) # No need for shuffle generally in validation
     num_batches = val_loader.get_num_batches()
     batch_val_times = []
     
@@ -138,15 +138,6 @@ for e in range(epochs):
             avg_time = sum(batch_val_times) / len(batch_val_times)
             pbar.update(1)
             pbar.set_postfix({"avg_batch_time_ms": f"{avg_time*1000:.2f}"})
-
-
-
-
-
-
-
-
-
 
 
 
