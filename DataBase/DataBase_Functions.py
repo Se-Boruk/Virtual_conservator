@@ -168,7 +168,7 @@ class Async_DataLoader():
         self.active_workers = 0 
         self.threads = []
         self.epoch_event = threading.Event()
-        self.indices = np.arange(len(self.dataset))  #images order in current epoch
+        self.indices = list(range(len(self.dataset)))
 
         #Preallocate pinned buffers
         self.pinned_bufs = [torch.empty((self.batch_size, self.C, self.H, self.W), 
