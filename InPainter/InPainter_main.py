@@ -33,7 +33,9 @@ import Architectures
 import Inpainter_functions as Inp_f
 
 #Other libs
+import comet_ml
 import torch
+
 
 
 ###################################################################
@@ -83,8 +85,14 @@ Reconstruction_data_tests(train_subset = Train_set,
 ###################################################################
 
 #Hyperparams for training
-epochs = 50
+epochs = 75
 bs = 16
+lr = 1e-4
+
+l1_weight = 1
+l2_weight = 0.1
+ssim_weight = 0.05
+tv_weight=  0.001
 
 #Datalodaers params
 n_workers = 4
@@ -96,11 +104,6 @@ input_channels = 3  #Same as data channels if the input is rgb only (harder prob
 n_residual_blocks = 3
 base_filters = 32
 
-#Training params
-l1_weight = 1
-l2_weight = 0.1
-ssim_weight = 0.05
-tv_weight=  0.001
 
 Visualization_rows = 8
 
@@ -141,7 +144,7 @@ Inpainter_model = Architectures.Inpainter_v0(input_channels = input_channels,
 
 #Optimizer
 Opt_inpainter = torch.optim.AdamW( list(Inpainter_model.parameters() ),
-                                  lr=2e-4,
+                                  lr=lr,
                                   betas=(0.9, 0.999),
                                   weight_decay=1e-6 
                                   )
@@ -208,12 +211,64 @@ with open(log_csv_path, "w", newline="") as f:
 best_loss = float("inf")
 best_model_path = "models/best_inpainter.pth"
 
+
+
 ###################################################################
-# ( 8 ) Training loop
+# ( 8 ) Preparing comet logging
 ###################################################################
+
+#api key from env variables on local machine
+api_key = os.getenv("COMET_API_KEY")
+    
+# Initialize experiment
+comet_experiment = comet_ml.Experiment(api_key=api_key,
+                                       project_name="SIUM_2_Unsupervised_learning_project",
+                                       workspace="sium-2-team"
+                                       )
+
+comet_experiment.add_tags(["Inpainter"])
+
+
+# Hyperparameters
+comet_experiment.log_parameters({
+    "epochs": epochs,
+    "batch_size": bs,
+    "learning_rate": lr,
+    "optimizer": type(Opt_inpainter).__name__,  # get class name of optimizer
+    "loss_weights": {
+        "l1": l1_weight,
+        "l2": l2_weight,
+        "ssim": ssim_weight,
+        "tv": tv_weight
+    }
+})
+
+# Dataloader parameters
+comet_experiment.log_parameters({
+    "num_workers": n_workers,
+    "max_queue_size": max_queue
+})
+
+# Inpainter model architecture
+comet_experiment.log_parameters({
+    "model_class": type(Inpainter_model).__name__,
+    "num_residual_blocks": n_residual_blocks,
+    "base_filters": base_filters,
+    "num_parameters": sum(p.numel() for p in Inpainter_model.parameters() if p.requires_grad)
+})
+
+
+# Log model graph
+comet_experiment.set_model_graph(Inpainter_model)
+
+
+
+###################################################################
+# ( 9 ) Training loop
+###################################################################
+
 #Scaler for halfprecision training
 scaler = torch.amp.GradScaler()
-
 
 for e in range(epochs):
     #################################################
@@ -273,6 +328,9 @@ for e in range(epochs):
             #Finished training step, log scores and calculate avg times
             pbar.update(1)
             pbar.set_postfix( { "train_loss": f"{Loss.item():.4f}" } )
+            
+            #Log to comet
+            comet_experiment.log_metric("train_loss", Loss.item(), step=e)
 
          
         #After epoch is finished
@@ -296,6 +354,9 @@ for e in range(epochs):
                 'loss': best_loss
             }, best_model_path)
             print(f"\n[Info] Saved new best model+optimizer at epoch {e+1} with loss {best_loss:.4f}")
+            
+            #Log to comet
+            comet_experiment.log_metric("best_loss", best_loss, step=e+1)
 
 
         # Periodic backup
@@ -310,7 +371,7 @@ for e in range(epochs):
             print(f"\n[Info] Saved backup checkpoint at epoch {e+1}")
         
         if e % 1  == 0:
-            visualizer.visualize(visual_batch, epoch= e)
+            visualizer.visualize(visual_batch, epoch= e, comet_experiment = comet_experiment)
 
           
 
@@ -347,4 +408,4 @@ for e in range(epochs):
             pbar.set_postfix({"avg_batch_time_ms": f"{avg_time*1000:.2f}"})
             
     """ 
-
+comet_experiment.end()
