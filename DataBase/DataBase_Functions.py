@@ -227,12 +227,14 @@ class Async_DataLoader():
                     
                     original_batch = pinned_buf[:actual_bs].to(self.device, non_blocking=True)  # original images
                     
+                    ###################################################
+                    #Place to put possible augmentation on images 
+                    ###################################################
                     
                     if self.add_damaged :
                         ###################
-                        # Place to put the operations on batches ( Augmentation / damage etc.)
-                        
-                        damage_masks, _ = dmg_generator.generate(shape = (self.batch_size, self.H, self.W))
+                        # Place to put the damage operations on batches 
+                        damage_masks, _ = dmg_generator.generate(shape = (actual_bs, self.H, self.W))
                         
                         damaged_batch = original_batch.clone()  # clone to keep original untouched
                         damaged_batch = damaged_batch * (1.0 - damage_masks.unsqueeze(1))
@@ -296,7 +298,39 @@ class Async_DataLoader():
         
         """Get number of batches (steps) for given dataset length and batch size"""
         steps = (len(self.dataset) + self.batch_size - 1) // self.batch_size
-        return steps    
+        return steps
+
+    def get_random_batch(self, batch_size=None, shuffle=True):
+        """
+        Returns a random batch of original images from the dataset, no damage applied.
+    
+        Args:
+            batch_size: int, optional, number of images (default: self.batch_size)
+            shuffle: bool, whether to pick random indices
+    
+        Returns:
+            batch tensor of shape (B, C, H, W)
+        """
+        bs = batch_size or self.batch_size
+    
+        # pick indices
+        if shuffle:
+            indices = np.random.choice(len(self.dataset), bs, replace=False)
+        else:
+            indices = np.arange(bs)
+    
+        # preallocate pinned buffer
+        pinned_buf = torch.empty((bs, self.C, self.H, self.W), dtype=torch.float32).pin_memory()
+    
+        # load images
+        for i, idx in enumerate(indices):
+            img = np.array(self.dataset[idx]["image"], dtype=np.float32) / 255.0
+            pinned_buf[i] = torch.from_numpy(img).permute(2, 0, 1)
+    
+        # move to device
+        batch = pinned_buf.to(self.device, non_blocking=True)
+    
+        return batch    
     
     
 ##########################################################################
