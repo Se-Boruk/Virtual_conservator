@@ -85,7 +85,7 @@ Reconstruction_data_tests(train_subset = Train_set,
 ###################################################################
 
 #Hyperparams for training
-epochs = 75
+epochs = 60
 bs = 16
 lr = 1e-4
 
@@ -221,11 +221,12 @@ best_model_path = "models/best_inpainter.pth"
 api_key = os.getenv("COMET_API_KEY")
     
 # Initialize experiment
-comet_experiment = comet_ml.Experiment(api_key=api_key,
-                                       project_name="SIUM_2_Unsupervised_learning_project",
-                                       workspace="sium-2-team",
-                                       offline=True
-                                       )
+comet_experiment = comet_ml.start(
+    api_key=api_key,
+    project_name="SIUM_2_Unsupervised_learning_project",
+    workspace="sium-2-team",
+    online=False
+)
 
 comet_experiment.add_tags(["Inpainter"])
 
