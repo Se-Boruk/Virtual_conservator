@@ -3,6 +3,7 @@ DataBase/*
 __pycache__/*
 
 Inpainter/__pycache__
+Inpainter/Restored_paintings/*
 Inpainter/models/*
 Inpainter/Model_graphs/*
 
