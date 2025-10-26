@@ -223,7 +223,8 @@ api_key = os.getenv("COMET_API_KEY")
 # Initialize experiment
 comet_experiment = comet_ml.Experiment(api_key=api_key,
                                        project_name="SIUM_2_Unsupervised_learning_project",
-                                       workspace="sium-2-team"
+                                       workspace="sium-2-team",
+                                       offline=True
                                        )
 
 comet_experiment.add_tags(["Inpainter"])
