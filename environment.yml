@@ -1,0 +1,16 @@
+name: SIUM_2_PROJECT
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - tqdm          
+  - pip:
+      - torch==2.7.1+cu128 --index-url https://download.pytorch.org/whl/cu128
+      - torchvision==0.22.1+cu128 --index-url https://download.pytorch.org/whl/cu128
+      - torchaudio==2.7.1+cu128 --index-url https://download.pytorch.org/whl/cu128
+      - torchsummary
+      - torchviz
+      - datasets
+      - torchmetrics
+      - matplotlib
