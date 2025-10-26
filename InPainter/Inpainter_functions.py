@@ -3,7 +3,8 @@ import torch.nn as nn
 import torchmetrics
 import os
 import matplotlib.pyplot as plt
-
+import io
+from PIL import Image
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 ssim_fn = torchmetrics.image.StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
@@ -90,7 +91,7 @@ class InpaintingVisualizer:
             mask, _ = self.dmg_gen.generate((1, H, W))
             self.masks[i] = mask.unsqueeze(0).to(self.device)
             
-    def visualize(self, img_batch, epoch=None, prefix="epoch"):
+    def visualize(self, img_batch, epoch=None, prefix="epoch", comet_experiment = None):
         """
         Args:
             img_batch: tensor (B, C, H, W), normalized [-1,1]
@@ -136,11 +137,25 @@ class InpaintingVisualizer:
         if self.save and epoch is not None:
             filename = os.path.join(self.save_dir, f"{prefix}_{epoch:04d}.png")
             plt.savefig(filename)
+        
             
+        #Log to Comet if said so
+        if comet_experiment is not None:
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png')
+            buf.seek(0)
+            img = Image.open(buf)
+            comet_experiment.log_image(
+                image_data=img,
+                name=f"{prefix}_{epoch:04d}" if epoch is not None else prefix,
+                overwrite=False
+            )
+        
         if self.show:
             plt.show()
         else:
             plt.close(fig)
+            
 
 
 
