@@ -2,10 +2,11 @@
 DataBase/*
 __pycache__/*
 
-Inpainter/__pycache__
-Inpainter/Restored_paintings/*
-Inpainter/models/*
-Inpainter/Model_graphs/*
+InPainter/__pycache__
+InPainter/Restored_paintings/*
+InPainter/models/*
+InPainter/Model_graphs/*
+InPainter/train_loss_log.csv
 
 #Ignore these files
 #Some_file.py
