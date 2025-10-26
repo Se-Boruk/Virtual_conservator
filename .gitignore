@@ -2,6 +2,11 @@
 DataBase/*
 __pycache__/*
 
+Inpainter/__pycache__
+Inpainter/Restored_paintings/*
+Inpainter/models/*
+Inpainter/Model_graphs/*
+
 #Ignore these files
 #Some_file.py
 

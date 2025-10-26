@@ -1,0 +1,8 @@
+1)
+Czy koniecznie musi być podana klasa w Inpainterze. Czy może być pojedynczy inpainter do "wszystkich obrazów" ale bez podawania 
+estymowanej klasy
+
+2)
+Jakie dokładnie muszą być uszkodzenia? Czy algorytm jest w porządku? 
+Czy to mają być uszkodzenia typu "0" - czarne, czy typu "1" - białe, czy jest to bez znaczenia?
+
