@@ -330,8 +330,7 @@ for e in range(epochs):
             pbar.update(1)
             pbar.set_postfix( { "train_loss": f"{Loss.item():.4f}" } )
             
-            #Log to comet
-            comet_experiment.log_metric("train_loss", Loss.item(), step=e)
+            
 
          
         #After epoch is finished
@@ -339,6 +338,7 @@ for e in range(epochs):
         
         # Average loss for the epoch
         avg_epoch_loss = epoch_loss / num_batches
+        comet_experiment.log_metric("train_loss", avg_epoch_loss, step=e+1)
         
         # Log to CSV
         with open(log_csv_path, "a", newline="") as f:
