@@ -177,8 +177,19 @@ class Async_DataLoader():
         
         
         self.add_damaged = add_damaged
-        #activate function for loading batches into the queue
-        self._start_prefetch()
+        
+        #create per-worker damage generators in main thread
+        if self.add_damaged:
+            # don't move device here unless you want the generator to allocate on cuda on init
+            # If Random_Damage_Generator is lightweight on construction, this is fine.
+            self.dmg_generators = [Random_Damage_Generator(device=self.device) for _ in range(self.num_workers)]
+        else:
+            self.dmg_generators = [None] * self.num_workers
+        
+        # threads will be started lazily in start_epoch (safer on Windows/spawn)
+        self.threads_started = False
+        # do not start prefetch here
+        # self._start_prefetch()
 
     def _start_prefetch(self):
         
@@ -207,8 +218,10 @@ class Async_DataLoader():
             """
             Function for taking and processing batch. Single worker operation
             """
+            # at top of worker(worker_id) function:
+            dmg_generator = None
             if self.add_damaged:
-                dmg_generator = Random_Damage_Generator(device = self.device)
+                dmg_generator = self.dmg_generators[worker_id]
             
             pinned_buf = self.pinned_bufs[worker_id]
             while True:
@@ -268,15 +281,22 @@ class Async_DataLoader():
         
         """Start a new epoch. It resets queue and shuffle data."""
         
-        self.queue.queue.clear()
+        self.queue = Queue(maxsize=self.queue.maxsize)
         self.next_idx = 0
         self.active_workers = self.num_workers
         
+        #Create worker threads only once
+        if not self.threads_started:
+            self._start_prefetch()
+            self.threads_started = True
+            
         #Shuffle indexes if specified so they have other order in next epoch
         if shuffle:
             np.random.shuffle(self.indices)
             
         self.epoch_event.set() #It allows workers to start
+        
+        
 
     def get_batch(self):
         """Returns batch next in queue"""
