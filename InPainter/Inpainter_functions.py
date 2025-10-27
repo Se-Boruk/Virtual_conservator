@@ -2,10 +2,15 @@ import torch
 import torch.nn as nn
 import torchmetrics
 import os
+import matplotlib
+matplotlib.use('Agg')             # force safe backend every call
 import matplotlib.pyplot as plt
 import io
-from PIL import Image
 
+
+
+        
+        
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 ssim_fn = torchmetrics.image.StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
 l1_loss = nn.L1Loss()
@@ -60,7 +65,7 @@ def inpainting_loss(pred, target,
 
 class InpaintingVisualizer:
     def __init__(self, inpainter_model, damage_generator, rows=8, H=256, W=256, device=None,
-                 save_dir="visualizations", show=True, save=True):
+                 save_dir="visualizations", save=True):
         """
         Args:
             inpainter_model: PyTorch model
@@ -80,7 +85,6 @@ class InpaintingVisualizer:
         self.W = W
         self.device = device or next(self.model.parameters()).device
         self.save_dir = save_dir
-        self.show = show
         self.save = save
         
         os.makedirs(self.save_dir, exist_ok=True)
@@ -90,71 +94,62 @@ class InpaintingVisualizer:
         for i in range(rows):
             mask, _ = self.dmg_gen.generate((1, H, W))
             self.masks[i] = mask.unsqueeze(0).to(self.device)
+          
             
-    def visualize(self, img_batch, epoch=None, prefix="epoch", comet_experiment = None):
+    def visualize(self, img_batch, epoch, prefix="epoch", comet_experiment=None):
         """
         Args:
             img_batch: tensor (B, C, H, W), normalized [-1,1]
             epoch: optional epoch number (used for filename)
             prefix: prefix for saved files
         """
-        # Take first self.rows images
+    
+        # Tensor preprocessing
         original = img_batch[:self.rows].to(self.device)
-        
-        # Apply mask
         damaged = torch.where(self.masks.bool(), -1.0, original)
-        
-        # Inference
         with torch.inference_mode():
             restored = self.model(damaged).detach()
-        
-        # Move to HWC and normalize [0,1] for plotting
+    
         def prep(t):
-            t = t.permute(0,2,3,1)  # BCHW -> BHWC
-            return ((t + 1)/2).clamp(0,1)
-        
-        original_p = prep(original)
-        damaged_p = prep(damaged)
-        restored_p = prep(restored)
-        
-        # Plot
-        fig, axes = plt.subplots(3, self.rows, figsize=(3*self.rows, 9))
+            t = t.permute(0, 2, 3, 1)
+            return ((t + 1) / 2).clamp(0, 1)
+    
+        original_p, damaged_p, restored_p = map(prep, (original, damaged, restored))
+    
+        #Make plot of the images
+        fig, axes = plt.subplots(3, self.rows, figsize=(3 * self.rows, 9))
         for i in range(self.rows):
-            axes[0,i].imshow(original_p[i].cpu())
-            axes[0,i].axis('off')
-            axes[0,i].set_title("Original")
-            
-            axes[1,i].imshow(damaged_p[i].cpu())
-            axes[1,i].axis('off')
-            axes[1,i].set_title("Damaged")
-            
-            axes[2,i].imshow(restored_p[i].cpu())
-            axes[2,i].axis('off')
-            axes[2,i].set_title("Restored")
-        
+            axes[0, i].imshow(original_p[i].cpu())
+            axes[0, i].set_title("Original")
+            axes[1, i].imshow(damaged_p[i].cpu())
+            axes[1, i].set_title("Damaged")
+            axes[2, i].imshow(restored_p[i].cpu())
+            axes[2, i].set_title("Restored")
+            for ax in (axes[0, i], axes[1, i], axes[2, i]):
+                ax.axis("off")
+    
         plt.tight_layout()
-        
-        if self.save and epoch is not None:
+    
+        #Save plot if specified
+        if self.save:
             filename = os.path.join(self.save_dir, f"{prefix}_{epoch:04d}.png")
-            plt.savefig(filename)
-        
+            os.makedirs(self.save_dir, exist_ok=True)
+            fig.savefig(filename)
             
-        #Log to Comet if said so
-        if comet_experiment is not None:
-            buf = io.BytesIO()
-            fig.savefig(buf, format='png')
-            buf.seek(0)
-            img = Image.open(buf)
-            comet_experiment.log_image(
-                image_data=img,
-                name=f"{prefix}_{epoch:04d}" if epoch is not None else prefix,
-                overwrite=False
-            )
+            if comet_experiment is not None:
+                #Check if to log into tcomet
+                comet_experiment.log_image(filename, name=f"{prefix}_{epoch:04d}", overwrite=False)
         
-        if self.show:
-            plt.show()
-        else:
-            plt.close(fig)
+        
+        #If not saving the model just check if to log into the comet
+        elif comet_experiment is not None:
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png")
+            buf.seek(0)
+            comet_experiment.log_image(image_data=buf, name=f"{prefix}_{epoch:04d}" if epoch else prefix)
+    
+        ##Always close figure
+        plt.close(fig)
             
 
 
