@@ -85,7 +85,7 @@ Reconstruction_data_tests(train_subset = Train_set,
 ###################################################################
 
 #Hyperparams for training
-epochs = 60
+epochs = 35
 bs = 16
 lr = 1e-4
 
@@ -105,7 +105,7 @@ n_residual_blocks = 3
 base_filters = 32
 
 
-Visualization_rows = 8
+Visualization_rows = 9
 
 ###################################################################
 # ( 4 ) Model creation, dataloader preparation
@@ -185,7 +185,7 @@ print("Done!")
 damage_generator = Random_Damage_Generator()
 
 visualizer = Inp_f.InpaintingVisualizer(Inpainter_model, damage_generator, rows=Visualization_rows, H=img_h, W=img_w, device=device,
-                                      save_dir="Restored_paintings", show=False, save=True)
+                                      save_dir="Restored_paintings", save=True)
 
 
 visual_batch = val_loader.get_random_batch(batch_size = Visualization_rows, shuffle = True)
@@ -271,143 +271,156 @@ comet_experiment.set_model_graph(Inpainter_model)
 
 #Scaler for halfprecision training
 scaler = torch.amp.GradScaler()
-
-for e in range(epochs):
-    #################################################
-    #Training part
-    #################################################
+#Fallback for comet experiment to log the results even if training crashes
+try:
+    for e in range(epochs):
+        #################################################
+        #Training part
+        #################################################
+        
+        train_loader.start_epoch(shuffle=True)
+        
+        epoch_loss = 0.0
+        num_batches = train_loader.get_num_batches()
     
-    train_loader.start_epoch(shuffle=True)
-    
-    epoch_loss = 0.0
-    num_batches = train_loader.get_num_batches()
-
-    Inpainter_model.train()
-    with tqdm(total=num_batches, desc=f"Epoch {e+1}", unit=" batch") as pbar:
-        while True:
-            
-            #Load batch from loader
-            batch = train_loader.get_batch()
-            if batch is None:
-                break
-            
-            #Load batches and normalize them to -1 1 range
-            original_batch = (batch[0] * 2)-1
-            damaged_batch = (batch[1] * 2)-1
-            ##############################
-            #Simulate training 
-            
-            
-            # ----Inpainter update----
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
+        Inpainter_model.train()
+        with tqdm(total=num_batches, desc=f"Epoch {e+1}", unit=" batch") as pbar:
+            while True:
                 
-                #Make restored batch
-                restored_batch = Inpainter_model(damaged_batch)
-
-
-                #Loss function calculation
-                Loss = Inp_f.inpainting_loss(pred = restored_batch,
-                                             target = original_batch,
-                                             l1_weight = l1_weight,
-                                             l2_weight = l2_weight,
-                                             ssim_weight = ssim_weight,
-                                             tv_weight = tv_weight
-                                             )
+                #Load batch from loader
+                batch = train_loader.get_batch()
+                if batch is None:
+                    break
+                
+                #Load batches and normalize them to -1 1 range
+                original_batch = (batch[0] * 2)-1
+                damaged_batch = (batch[1] * 2)-1
+                ##############################
+                #Simulate training 
+                
+                
+                # ----Inpainter update----
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
+                    
+                    #Make restored batch
+                    restored_batch = Inpainter_model(damaged_batch)
+    
+    
+                    #Loss function calculation
+                    Loss = Inp_f.inpainting_loss(pred = restored_batch,
+                                                 target = original_batch,
+                                                 l1_weight = l1_weight,
+                                                 l2_weight = l2_weight,
+                                                 ssim_weight = ssim_weight,
+                                                 tv_weight = tv_weight
+                                                 )
+                
+                #Gradients update with exception for explosion (addon for adding I suppose, model would collapse anyway though)
+                if torch.isfinite(Loss):
+                    Opt_inpainter.zero_grad()
+                    scaler.scale(Loss).backward()
+                    scaler.step(Opt_inpainter)
+                    scaler.update()
+                else:
+                    print(f"[Warning] Skipped Generator step due to non-finite loss: {Loss.item()}")
+                ##############################
+                
+                
+                
+                epoch_loss += Loss.item()
+                #Finished training step, log scores and calculate avg times
+                pbar.update(1)
+                pbar.set_postfix( { "train_loss": f"{Loss.item():.4f}" } )
+                
+                
+    
+            #After epoch is finished
+            ##########################################
             
-            #Gradients update with exception for explosion (addon for adding I suppose, model would collapse anyway though)
-            if torch.isfinite(Loss):
-                Opt_inpainter.zero_grad()
-                scaler.scale(Loss).backward()
-                scaler.step(Opt_inpainter)
-                scaler.update()
-            else:
-                print(f"[Warning] Skipped Generator step due to non-finite loss: {Loss.item()}")
-            ##############################
+            # Average loss for the epoch
+            avg_epoch_loss = epoch_loss / num_batches
+            comet_experiment.log_metric("train_loss", avg_epoch_loss, step=e+1)
             
+            # Log to CSV
+            with open(log_csv_path, "a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([e+1, avg_epoch_loss])
+              
+                
+            if avg_epoch_loss < best_loss:
+                best_loss = avg_epoch_loss
+                torch.save({
+                    'epoch': e + 1,
+                    'model_state_dict': Inpainter_model.state_dict(),
+                    'optimizer_state_dict': Opt_inpainter.state_dict(),
+                    'loss': best_loss
+                }, best_model_path)
+                print(f"\n[Info] Saved new best model+optimizer at epoch {e+1} with loss {best_loss:.4f}")
+                
+                #Log to comet
+                comet_experiment.log_metric("best_loss", best_loss, step=e+1)
+    
+    
+            # Periodic backup
+            if (e + 1) % backup_interval == 0:
+                backup_path = f"models/backup/inpainter_epoch_{e+1}.pth"
+                torch.save({
+                    'epoch': e + 1,
+                    'model_state_dict': Inpainter_model.state_dict(),
+                    'optimizer_state_dict': Opt_inpainter.state_dict(),
+                    'loss': avg_epoch_loss
+                }, backup_path)
+                print(f"\n[Info] Saved backup checkpoint at epoch {e+1}")
             
-            
-            epoch_loss += Loss.item()
-            #Finished training step, log scores and calculate avg times
-            pbar.update(1)
-            pbar.set_postfix( { "train_loss": f"{Loss.item():.4f}" } )
-            
-            
-
-         
-        #After epoch is finished
-        ##########################################
-        
-        # Average loss for the epoch
-        avg_epoch_loss = epoch_loss / num_batches
-        comet_experiment.log_metric("train_loss", avg_epoch_loss, step=e+1)
-        
-        # Log to CSV
-        with open(log_csv_path, "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([e+1, avg_epoch_loss])
-          
-            
-        if avg_epoch_loss < best_loss:
-            best_loss = avg_epoch_loss
-            torch.save({
-                'epoch': e + 1,
-                'model_state_dict': Inpainter_model.state_dict(),
-                'optimizer_state_dict': Opt_inpainter.state_dict(),
-                'loss': best_loss
-            }, best_model_path)
-            print(f"\n[Info] Saved new best model+optimizer at epoch {e+1} with loss {best_loss:.4f}")
-            
-            #Log to comet
-            comet_experiment.log_metric("best_loss", best_loss, step=e+1)
-
-
-        # Periodic backup
-        if (e + 1) % backup_interval == 0:
-            backup_path = f"models/backup/inpainter_epoch_{e+1}.pth"
-            torch.save({
-                'epoch': e + 1,
-                'model_state_dict': Inpainter_model.state_dict(),
-                'optimizer_state_dict': Opt_inpainter.state_dict(),
-                'loss': avg_epoch_loss
-            }, backup_path)
-            print(f"\n[Info] Saved backup checkpoint at epoch {e+1}")
-        
-        if e % 1  == 0:
-            visualizer.visualize(visual_batch, epoch= e, comet_experiment = comet_experiment)
-
-          
+            if e % 1  == 0:
+                visualizer.visualize(visual_batch, epoch= e, comet_experiment = comet_experiment)
+                
 
     
-
-
-    """        
-    #################################################
-    #Validation part
-    #################################################
-    val_loader.start_epoch(shuffle=False) # No need for shuffle generally in validation
-    num_batches = val_loader.get_num_batches()
-    batch_val_times = []
+              
     
-    Inpainter_model.eval()
-    with tqdm(total=num_batches, desc=f"Epoch {e+1} - Val", unit="batch") as pbar:
-        while True:
-            t0 = time.time()
-            #Load batch from loader
-            batch = val_loader.get_batch()
-            if batch is None:
-                break
-            
-            ##############################
-            # simulate validation
-            time.sleep(0.05)
-            ##############################
-            
-            
-            t1 = time.time()
-            batch_val_times.append(t1 - t0)
-            avg_time = sum(batch_val_times) / len(batch_val_times)
-            pbar.update(1)
-            pbar.set_postfix({"avg_batch_time_ms": f"{avg_time*1000:.2f}"})
-            
-    """ 
-comet_experiment.end()
+        
+    
+    
+        """        
+        #################################################
+        #Validation part
+        #################################################
+        val_loader.start_epoch(shuffle=False) # No need for shuffle generally in validation
+        num_batches = val_loader.get_num_batches()
+        batch_val_times = []
+        
+        Inpainter_model.eval()
+        with tqdm(total=num_batches, desc=f"Epoch {e+1} - Val", unit="batch") as pbar:
+            while True:
+                t0 = time.time()
+                #Load batch from loader
+                batch = val_loader.get_batch()
+                if batch is None:
+                    break
+                
+                ##############################
+                # simulate validation
+                time.sleep(0.05)
+                ##############################
+                
+                
+                t1 = time.time()
+                batch_val_times.append(t1 - t0)
+                avg_time = sum(batch_val_times) / len(batch_val_times)
+                pbar.update(1)
+                pbar.set_postfix({"avg_batch_time_ms": f"{avg_time*1000:.2f}"})
+                
+        """ 
+        
+        
+except:
+    print("TRAINING FALLBACK! Error during training. ending comet experiment.")
+    #Fallback for errors in training
+    comet_experiment.end()
+
+    
+try:
+    comet_experiment.end()
+except:
+    print("Comet experiment already ended - probably error during training caused fallback of saving experiment")
