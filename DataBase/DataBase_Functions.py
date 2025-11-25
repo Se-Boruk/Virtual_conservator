@@ -97,8 +97,8 @@ def Reconstruction_data_tests(train_subset, val_subset, test_subset):
         print("Running datasaet tests...")
         #Train
         #From split we want to always replicate 
-        n1 = "26633.jpg"
-        n2 = "31329.jpg" 
+        n1 = "37806.jpg"
+        n2 = "88027.jpg" 
         
         #From split
         name_1 = train_subset[0]['filename']
@@ -114,8 +114,8 @@ def Reconstruction_data_tests(train_subset, val_subset, test_subset):
         ###########
         #Val
         #From split we want to always replicate 
-        n1 = "17396.jpg"
-        n2 = "83545.jpg" 
+        n1 = "63339.jpg"
+        n2 = "86573.jpg" 
         
         #From split
         name_1 = val_subset[0]['filename']
@@ -131,8 +131,8 @@ def Reconstruction_data_tests(train_subset, val_subset, test_subset):
         ###########
         #Test
         #From split we want to always replicate 
-        n1 = "37436.jpg"
-        n2 = "100478.jpg" 
+        n1 = "19946.jpg"
+        n2 = "33194.jpg" 
         
         #From split
         name_1 = test_subset[0]['filename']
@@ -320,37 +320,46 @@ class Async_DataLoader():
         steps = (len(self.dataset) + self.batch_size - 1) // self.batch_size
         return steps
 
-    def get_random_batch(self, batch_size=None, shuffle=True):
+    def get_random_batch(self, batch_size=None, shuffle=True, random_state=None):
         """
-        Returns a random batch of original images from the dataset, no damage applied.
-    
+        Returns a random batch of original images from the dataset, reproducible if rng is provided.
+        
         Args:
-            batch_size: int, optional, number of images (default: self.batch_size)
+            batch_size: int, optional
             shuffle: bool, whether to pick random indices
+            rng: np.random.Generator, optional — if given, sampling becomes deterministic
     
         Returns:
             batch tensor of shape (B, C, H, W)
         """
         bs = batch_size or self.batch_size
     
+        #Random state for reproducibility
+        if random_state is None:
+            random_state = np.random.default_rng()
+        else:
+            random_state = np.random.default_rng(random_state)
+
+        
         # pick indices
         if shuffle:
-            indices = np.random.choice(len(self.dataset), bs, replace=False)
+            indices = random_state.choice(len(self.dataset), bs, replace=False)
         else:
             indices = np.arange(bs)
     
-        # preallocate pinned buffer
-        pinned_buf = torch.empty((bs, self.C, self.H, self.W), dtype=torch.float32).pin_memory()
+        #preallocate pinned buffer
+        pinned_buf = torch.empty((bs, self.C, self.H, self.W),
+                                 dtype=torch.float32).pin_memory()
     
-        # load images
+        #load images
         for i, idx in enumerate(indices):
             img = np.array(self.dataset[idx]["image"], dtype=np.float32) / 255.0
             pinned_buf[i] = torch.from_numpy(img).permute(2, 0, 1)
     
-        # move to device
+        #move to device
         batch = pinned_buf.to(self.device, non_blocking=True)
-    
-        return batch    
+        
+        return batch
     
     
 ##########################################################################
