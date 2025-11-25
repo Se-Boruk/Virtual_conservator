@@ -64,7 +64,7 @@ def inpainting_loss(pred, target,
 
 
 class InpaintingVisualizer:
-    def __init__(self, inpainter_model, damage_generator, rows=8, H=256, W=256, device=None,
+    def __init__(self, encoder, decoder, damage_generator, clusterization_model = None, rows=8, H=256, W=256, device='cpu',
                  save_dir="visualizations", save=True):
         """
         Args:
@@ -77,13 +77,20 @@ class InpaintingVisualizer:
             show: whether to show plots
             save: whether to save plots
         """
-        self.model = inpainter_model
-        self.model.eval()  # ensure eval mode
+        
+        self.encoder = encoder
+        self.encoder.eval()  # ensure eval mode
+        
+        self.decoder = decoder
+        self.decoder.eval()
+        
+        self.clusterizer = clusterization_model
+        
         self.dmg_gen = damage_generator
         self.rows = rows
         self.H = H
         self.W = W
-        self.device = device or next(self.model.parameters()).device
+        self.device = device
         self.save_dir = save_dir
         self.save = save
         
@@ -103,12 +110,28 @@ class InpaintingVisualizer:
             epoch: optional epoch number (used for filename)
             prefix: prefix for saved files
         """
-    
+        batch_size = img_batch.size(0)
         # Tensor preprocessing
         original = img_batch[:self.rows].to(self.device)
         damaged = torch.where(self.masks.bool(), -1.0, original)
+        
+        
         with torch.inference_mode():
-            restored = self.model(damaged).detach()
+            #Forward through encoder
+            latent_tensor, skips = self.encoder(damaged)
+            s0, s1, s2 = skips
+            #If the clusterization model is ready this is palce to put it 
+            #(to produce class_vector from the latent tensor)
+            
+            #==============================================================
+            if self.clusterizer is None:
+                class_vector = torch.zeros((batch_size, 1), device=self.device, dtype=latent_tensor.dtype)
+            #==============================================================
+            
+            #Forward through decoder
+            restored = self.decoder(latent_tensor, s0, s1, s2, class_vector) 
+            
+            restored.detach()
     
         def prep(t):
             t = t.permute(0, 2, 3, 1)
