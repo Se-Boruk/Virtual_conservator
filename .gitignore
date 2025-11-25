@@ -16,6 +16,7 @@ InPainter/.cometml-runs/*
 #Exclude these files from being ignored
 !/DataBase/DataBase_Functions.py
 !/DataBase/Libraries.txt
+!/InPainter/models/Baseline/best_inpainter.flag
 
 
 
