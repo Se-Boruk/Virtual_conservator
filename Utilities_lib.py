@@ -2,8 +2,8 @@ from torchsummary import summary
 import os
 from torchviz import make_dot
 import torch
-import torch.nn as nn
-
+import json
+from tqdm import tqdm
 
 
 #Show architecture of given model
@@ -115,7 +115,36 @@ def Show_decoder_summary(decoder, encoder, input_tensor, class_vector_size=1,
     
     
     
+def build_class_mapping(train_set, val_set=None, test_set=None, mapping_file="class_to_int.json", style_field="style"):
+    """
+    Build or load a repeatable, shared class-to-integer mapping across train/val/test splits.
+    """
     
+    # Load existing mapping if present
+    if os.path.exists(mapping_file):
+        with open(mapping_file, "r") as f:
+            class_to_int = json.load(f)
+        print(f"Loaded existing shared mapping with {len(class_to_int)} classes from {mapping_file}")
+    else:
+        # Collect all unique styles from all provided splits
+        all_styles = set()
+        for dataset, name in zip([train_set, val_set, test_set], ["Train", "Val", "Test"]):
+            if dataset is not None:
+                for sample in tqdm(dataset, desc=f"Collecting styles from {name} set"):
+                    all_styles.add(sample[style_field])
+
+        # Sort the styles to make mapping deterministic
+        sorted_styles = sorted(all_styles)
+
+        # Assign unique integer to each style
+        class_to_int = {name: i for i, name in enumerate(sorted_styles)}
+
+        # Save mapping to JSON
+        with open(mapping_file, "w") as f:
+            json.dump(class_to_int, f, indent=2)
+        print(f"Saved shared mapping with {len(class_to_int)} classes to {mapping_file}")
+
+    return class_to_int 
     
     
     
