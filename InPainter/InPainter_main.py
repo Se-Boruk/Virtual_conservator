@@ -111,6 +111,16 @@ Visualization_rows = 9
 ###################################################################
 # ( 4 ) Model creation, dataloader preparation
 ###################################################################
+print("Mapping the pseudo-classes. JUST FOR the limit testing. Original classes would come in the final model from clusterizer!")
+
+mapping_file = "class_map.json"
+
+shared_mapping = Ut_lib.build_class_mapping(Train_set, Val_set, Test_set,
+                                            mapping_file=mapping_file,
+                                            style_field="style"
+                                            )
+
+
 
 # Training loader
 train_loader = Async_DataLoader(dataset = Train_set,
@@ -118,7 +128,8 @@ train_loader = Async_DataLoader(dataset = Train_set,
                                 num_workers=n_workers,
                                 device='cuda',
                                 max_queue=max_queue,
-                                add_damaged = True
+                                add_damaged = True,
+                                label_map = shared_mapping
                                 )
 
 # Validation loader
@@ -127,7 +138,8 @@ val_loader = Async_DataLoader(dataset = Val_set,
                               num_workers=n_workers,
                               device='cuda',
                               max_queue=max_queue,
-                              add_damaged = True
+                              add_damaged = True,
+                              label_map = shared_mapping
                               )
 
 # Test loader
@@ -136,8 +148,13 @@ test_loader = Async_DataLoader(dataset = Test_set,
                               num_workers=n_workers,
                               device='cuda',
                               max_queue=max_queue,
-                              add_damaged = True
+                              add_damaged = True,
+                              label_map = shared_mapping
                               )
+
+
+
+
 
 #Taking shape of the data
 img_channels = train_loader.C
@@ -147,23 +164,46 @@ img_w = train_loader.W
 
 #Creating Inpainter model
 print("\nPreparing Inpainter Encoder...")
-Inpainter_encoder = Architectures.Inpainter_V1.Encoder(input_channels = input_channels,
+Inpainter_encoder = Architectures.Inpainter_V2.Encoder(input_channels = input_channels,
                                                      n_residual=n_residual_blocks,
                                                      base_filters=base_filters
                                                      ).to('cpu')
 
 print("\nPreparing Inpainter Decoder...")
-Inpainter_decoder = Architectures.Inpainter_V1.Decoder(output_channels = input_channels,
+Inpainter_decoder = Architectures.Inpainter_V2.Decoder(output_channels = input_channels,
                                                        base_filters=base_filters
                                                        ).to('cpu')
 
 
+##########################
+#Loading the trained encoder weights:
+pretrained_autoencoder_path = "models/Baseline/best_inpainter.pth"    
+checkpoint = torch.load(pretrained_autoencoder_path, map_location='cpu')
+Inpainter_encoder.load_state_dict(checkpoint['encoder_state_dict'])
+
+#Freeze the weights
+for param in Inpainter_encoder.parameters():
+    param.requires_grad = False
+print("Encoder frozen; only decoder will be trained")
+
+#########################
+
 #Optimizer
+#
+"""
 Opt_inpainter = torch.optim.AdamW( list(Inpainter_encoder.parameters()) + list(Inpainter_decoder.parameters()),
                                   lr=lr,
                                   betas=(0.9, 0.999),
                                   weight_decay=1e-6 
                                   )
+"""
+#New optimizer just for the decoder
+Opt_inpainter = torch.optim.AdamW(
+    list(Inpainter_decoder.parameters()), 
+    lr=lr,
+    betas=(0.9, 0.999),
+    weight_decay=1e-6
+)
 
 
 ###################################################################
@@ -213,7 +253,7 @@ print("Done!")
 ###################################################################
 # ( 7 ) Preparation for saving model results in form of plots and logs
 ###################################################################
-model_ID = "Baseline"
+model_ID = "Class_input_100_correct"
 # For plots
 ####
 # Initialize once before training
@@ -341,6 +381,8 @@ try:
                 #Load batches and normalize them to -1 1 range
                 original_batch = (batch[0] * 2)-1
                 damaged_batch = (batch[1] * 2)-1
+                
+                artificial_labels = batch[2]
                 ##############################
                 #Simulate training 
                 
@@ -356,11 +398,13 @@ try:
                     #Palce for the clusterization from the latent tensor.
                     #Now its just filled with 0s for the baseline
                     
-                    bs = damaged_batch.shape[0]
-                    class_vector = torch.zeros(bs,1, device=damaged_batch.device)
+                    #bs = damaged_batch.shape[0]
+                    #class_vector = torch.zeros(bs,1, device=damaged_batch.device)
                     #==============================================================
-                    
-                    restored_batch = Inpainter_decoder(latent_tensor, s0, s1, s2, class_vector)
+
+
+                    #Now we use artificial labels from the dataset (assuming we got 100% accuracy check if we can make improvement)
+                    restored_batch = Inpainter_decoder(latent_tensor, s0, s1, s2, artificial_labels)
                     
 
                     #Loss function calculation
@@ -413,6 +457,7 @@ try:
                 #Normalize
                 original_batch_v = (batch[0] * 2)-1
                 damaged_batch_v = (batch[1] * 2)-1
+                artificial_labels = batch[2]
 
                 ##############################
                 # simulate validation forward (same ops as train but no optimizer step)
@@ -421,10 +466,12 @@ try:
                         latent_tensor_v, skips_v = Inpainter_encoder(damaged_batch_v)
                         vs0, vs1, vs2 = skips_v
 
-                        bs_v = damaged_batch_v.shape[0]
-                        class_vector_v = torch.zeros(bs_v,1, device=damaged_batch_v.device)
+                        #For use in baseline - 0ed vector
+                        #bs_v = damaged_batch_v.shape[0]
+                        #class_vector_v = torch.zeros(bs_v,1, device=damaged_batch_v.device)
 
-                        restored_batch_v = Inpainter_decoder(latent_tensor_v, vs0, vs1, vs2, class_vector_v)
+                        #Now we use artificial labels from the dataset (assuming we got 100% accuracy check if we can make improvement)
+                        restored_batch_v = Inpainter_decoder(latent_tensor_v, vs0, vs1, vs2, artificial_labels)
 
                         Loss_v = Inp_f.inpainting_loss(pred = restored_batch_v,
                                                        target = original_batch_v,

@@ -151,7 +151,7 @@ def Reconstruction_data_tests(train_subset, val_subset, test_subset):
     
     
 class Async_DataLoader():
-    def __init__(self, dataset, batch_size=32, num_workers=2, device='cuda', max_queue=10, add_damaged = False):
+    def __init__(self, dataset, batch_size=32, num_workers=2, device='cuda', max_queue=10, add_damaged = False, label_map = None):
         self.dataset = dataset
         #Taking sample of from dataset to initialize the shape of images
         sample_img = np.array(dataset[0]["image"], dtype=np.uint8)
@@ -169,12 +169,18 @@ class Async_DataLoader():
         self.threads = []
         self.epoch_event = threading.Event()
         self.indices = list(range(len(self.dataset)))
+        
+        #Label maps for the pseudomaps in testing !!IMPORTANT!! - They are arbitraly class which after clusterizer is trained wont be useful. Then only the classes from clusterizer must be used!!!!
+        self.label_map = label_map
 
         #Preallocate pinned buffers
         self.pinned_bufs = [torch.empty((self.batch_size, self.C, self.H, self.W), 
                                         dtype=torch.float32).pin_memory() 
                             for _ in range(num_workers)]
         
+        self.labels_bufs = [torch.empty((self.batch_size,1), 
+                                        dtype=torch.float32).pin_memory() 
+                            for _ in range(num_workers)]
         
         self.add_damaged = add_damaged
         
@@ -224,6 +230,7 @@ class Async_DataLoader():
                 dmg_generator = self.dmg_generators[worker_id]
             
             pinned_buf = self.pinned_bufs[worker_id]
+            labels_bufs = self.labels_bufs[worker_id]
             while True:
                 #Wait for epoch to start
                 self.epoch_event.wait()
@@ -234,11 +241,17 @@ class Async_DataLoader():
                     actual_bs = end - start
                     for i in range(actual_bs):
                         idx = self.indices[start + i]
+                        
                         img = np.array(self.dataset[idx]["image"], dtype=np.float32) / 255.0
+                        style = self.dataset[idx]['style']
+                        label = self.label_map[style]
+                    
                         pinned_buf[i] = torch.from_numpy(img).permute(2,0,1)
+                        labels_bufs[i] = label
                         
                     
                     original_batch = pinned_buf[:actual_bs].to(self.device, non_blocking=True)  # original images
+                    original_labels = labels_bufs[:actual_bs].to(self.device, non_blocking=True)
                     
                     ###################################################
                     #Place to put possible augmentation on images 
@@ -254,10 +267,10 @@ class Async_DataLoader():
 
                         ##################
                         #Put given batch of imgs and damageg ones in the queue
-                        self.queue.put((original_batch, damaged_batch))
+                        self.queue.put((original_batch, damaged_batch, original_labels))
                         
                     else:
-                        self.queue.put(original_batch)
+                        self.queue.put((original_batch, original_labels))
                         
                     
                     
@@ -306,13 +319,14 @@ class Async_DataLoader():
             return None
         
         if self.add_damaged:
-            original_batch, damaged_batch = batch
-            
+            original_batch, damaged_batch, labels = batch
             return (original_batch.to(self.device, non_blocking=True),
-                    damaged_batch.to(self.device, non_blocking=True))
-
+                    damaged_batch.to(self.device, non_blocking=True),
+                    labels.to(self.device))
         else:
-            return batch.to(self.device, non_blocking = True)
+            original_batch, labels = batch
+            return (original_batch.to(self.device, non_blocking=True),
+                    labels.to(self.device))
 
     def get_num_batches(self):
         
