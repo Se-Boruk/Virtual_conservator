@@ -151,11 +151,13 @@ def Reconstruction_data_tests(train_subset, val_subset, test_subset):
     
     
 class Async_DataLoader():
-    def __init__(self, dataset, batch_size=32, num_workers=2, device='cuda', max_queue=10, add_damaged = False, label_map = None):
+    def __init__(self, dataset, batch_size=32, num_workers=2, device='cuda', max_queue=10, add_damaged = True, add_augmented = True, label_map = None, fraction = None):
         self.dataset = dataset
         #Taking sample of from dataset to initialize the shape of images
         sample_img = np.array(dataset[0]["image"], dtype=np.uint8)
         self.C, self.H, self.W = sample_img.shape[2], sample_img.shape[0], sample_img.shape[1]
+        
+        self.fraction = fraction # Fraction of images taken in the epoch (randomized each epoch)
         
         self.batch_size = batch_size
         self.device = torch.device(device)
@@ -183,6 +185,8 @@ class Async_DataLoader():
                             for _ in range(num_workers)]
         
         self.add_damaged = add_damaged
+        self.add_augmented = add_augmented
+        
         
         #create per-worker damage generators in main thread
         if self.add_damaged:
@@ -221,67 +225,73 @@ class Async_DataLoader():
 
 
         def worker(worker_id):
-            """
-            Function for taking and processing batch. Single worker operation
-            """
-            # at top of worker(worker_id) function:
-            dmg_generator = None
-            if self.add_damaged:
-                dmg_generator = self.dmg_generators[worker_id]
-            
+            dmg_generator = self.dmg_generators[worker_id] if self.add_damaged else None
             pinned_buf = self.pinned_bufs[worker_id]
             labels_bufs = self.labels_bufs[worker_id]
+        
             while True:
-                #Wait for epoch to start
-                self.epoch_event.wait()
+                self.epoch_event.wait()  # wait for epoch start
+        
                 while True:
                     start, end = get_chunk()
                     if start is None:
                         break
                     actual_bs = end - start
+        
+                    # ---------------------------
+                    # Load original batch into pinned memory
+                    # ---------------------------
                     for i in range(actual_bs):
                         idx = self.indices[start + i]
-                        
                         img = np.array(self.dataset[idx]["image"], dtype=np.float32) / 255.0
                         style = self.dataset[idx]['style']
                         label = self.label_map[style]
+        
+                        pinned_buf[i].copy_(torch.from_numpy(img).permute(2, 0, 1))
+                        labels_bufs[i].fill_(label)
+        
+                    # Clone to avoid modifying pinned memory
+                    original_batch = pinned_buf[:actual_bs].to(self.device, non_blocking=True).clone()
+                    original_labels = labels_bufs[:actual_bs].to(self.device, non_blocking=True).clone()
+        
+                    # ---------------------------
+                    # Prepare batch variants
+                    # ---------------------------
+                    batch_dict = {
+                        "original": original_batch,
+                        "labels": original_labels
+                    }
+        
+                    # Original damaged
+                    if self.add_damaged:
+                        damage_masks, _ = dmg_generator.generate(shape=(actual_bs, self.H, self.W))
+                        original_damaged = original_batch * (1.0 - damage_masks.unsqueeze(1))
+                        batch_dict["original_damaged"] = original_damaged
                     
-                        pinned_buf[i] = torch.from_numpy(img).permute(2,0,1)
-                        labels_bufs[i] = label
+                    # Augmented
+                    if self.add_augmented:
+                        aug_input = original_batch.clone()
+                        aug_mask_input = damage_masks.clone() if self.add_damaged else torch.zeros((actual_bs, 1, self.H, self.W), device=self.device)
+        
+                        aug_images, aug_masks = augment_image_and_mask(aug_input, aug_mask_input)
+                        batch_dict["augmented"] = aug_images
                         
-                    
-                    original_batch = pinned_buf[:actual_bs].to(self.device, non_blocking=True)  # original images
-                    original_labels = labels_bufs[:actual_bs].to(self.device, non_blocking=True)
-                    
-                    ###################################################
-                    #Place to put possible augmentation on images 
-                    ###################################################
-                    
-                    if self.add_damaged :
-                        ###################
-                        # Place to put the damage operations on batches 
-                        damage_masks, _ = dmg_generator.generate(shape = (actual_bs, self.H, self.W))
-                        
-                        damaged_batch = original_batch.clone()  # clone to keep original untouched
-                        damaged_batch = damaged_batch * (1.0 - damage_masks.unsqueeze(1))
+        
+                        # Augmented + damaged
+                        if self.add_damaged:
+                            aug_damaged_images = aug_images * (1.0 - aug_masks)
+                            batch_dict["augmented_damaged"] = aug_damaged_images
 
-                        ##################
-                        #Put given batch of imgs and damageg ones in the queue
-                        self.queue.put((original_batch, damaged_batch, original_labels))
-                        
-                    else:
-                        self.queue.put((original_batch, original_labels))
-                        
-                    
-                    
-                #One worker done, check if was last worker (so last batch)
-                #If it was last one then put None. It will end the epoch when reached
+        
+                    # Push to queue
+                    self.queue.put(batch_dict)
+        
+                # Epoch end handling
                 with self.idx_lock:
                     self.active_workers -= 1
-                    
                     if self.active_workers == 0:
-                        self.queue.put(None)  ##None at the end ends epoch when reached
-                        self.epoch_event.clear()  #Wait for next epoch with prefetching
+                        self.queue.put(None)
+                        self.epoch_event.clear()
 
         # start worker threads
         for wid in range(self.num_workers):
@@ -303,35 +313,45 @@ class Async_DataLoader():
             self._start_prefetch()
             self.threads_started = True
             
-        #Shuffle indexes if specified so they have other order in next epoch
+        #Shuffle and optionally reduce dataset fraction
+        indices = np.arange(len(self.dataset))
         if shuffle:
-            np.random.shuffle(self.indices)
+            np.random.shuffle(indices)
+
+        if self.fraction is not None and 0 < self.fraction < 1:
+            reduced_size = int(len(indices) * self.fraction)
+            indices = indices[:reduced_size]  # take only fraction of dataset
+        
+        self.indices = list(indices)
             
         self.epoch_event.set() #It allows workers to start
         
         
 
+
     def get_batch(self):
-        """Returns batch next in queue"""
-        
         batch = self.queue.get()
         if batch is None:
             return None
-        
-        if self.add_damaged:
-            original_batch, damaged_batch, labels = batch
-            return (original_batch.to(self.device, non_blocking=True),
-                    damaged_batch.to(self.device, non_blocking=True),
-                    labels.to(self.device))
-        else:
-            original_batch, labels = batch
-            return (original_batch.to(self.device, non_blocking=True),
-                    labels.to(self.device))
+    
+        # Move all tensors in dict to device (non-blocking)
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                batch[k] = v.to(self.device, non_blocking=True)
+        return batch
 
     def get_num_batches(self):
-        
-        """Get number of batches (steps) for given dataset length and batch size"""
-        steps = (len(self.dataset) + self.batch_size - 1) // self.batch_size
+        """
+        Get number of batches (steps) for the current epoch, 
+        taking into account fraction of dataset if specified.
+        """
+        # Determine effective dataset length for this epoch
+        if self.fraction is not None and 0 < self.fraction < 1:
+            effective_len = int(len(self.dataset) * self.fraction)
+        else:
+            effective_len = len(self.dataset)
+
+        steps = (effective_len + self.batch_size - 1) // self.batch_size
         return steps
 
     def get_random_batch(self, batch_size=None, shuffle=True, random_state=None):
@@ -637,5 +657,98 @@ class Random_Damage_Generator:
         return masks, metadata    
     
     
-    
+
+
+def augment_image_and_mask(image_batch, mask_batch,
+                           brightness=0.2, contrast=0.2, saturation=0.2,
+                           flip_prob=0.5, max_rot=15, crop_ratio=0.9):
+    """
+    image_batch: (B, C, H, W) tensor, float in [0,1]
+    mask_batch: (B, 1, H, W) tensor, float in [0,1]
+    Returns: augmented_image_batch, augmented_mask_batch (both in [0,1])
+    """
+    B, C, H, W = image_batch.shape
+    device = image_batch.device
+    dtype = image_batch.dtype
+
+    if mask_batch.dim() == 3:
+        mask_batch = mask_batch.unsqueeze(1)
+
+    # clone to avoid in-place modifications
+    image_batch = image_batch.clone()
+    mask_batch = mask_batch.clone()
+
+    # -----------------------------
+    # 1. Random horizontal flip
+    # -----------------------------
+    flip_mask = torch.rand(B, device=device) < flip_prob
+    if flip_mask.any():
+        image_batch[flip_mask] = image_batch[flip_mask].flip(dims=[-1])
+        mask_batch[flip_mask] = mask_batch[flip_mask].flip(dims=[-1])
+
+    # -----------------------------
+    # 2. Random rotation
+    # -----------------------------
+    angles = (torch.rand(B, device=device) * 2 - 1) * max_rot  # -max_rot .. +max_rot
+    radians = angles * (3.14159265 / 180)
+
+    cos = torch.cos(radians)
+    sin = torch.sin(radians)
+    rot_matrices = torch.zeros(B, 2, 3, device=device, dtype=dtype)
+    rot_matrices[:, 0, 0] = cos
+    rot_matrices[:, 0, 1] = -sin
+    rot_matrices[:, 1, 0] = sin
+    rot_matrices[:, 1, 1] = cos
+    rot_matrices[:, :, 2] = 0  # rotate around center
+
+    grid = F.affine_grid(rot_matrices, image_batch.size(), align_corners=False)
+    image_batch = F.grid_sample(image_batch, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+    mask_batch = F.grid_sample(mask_batch, grid, mode='nearest', padding_mode='zeros', align_corners=False)
+
+    # -----------------------------
+    # 3. Random crop + resize
+    # -----------------------------
+    if crop_ratio < 1.0:
+        crop_h = int(H * crop_ratio)
+        crop_w = int(W * crop_ratio)
+        top = torch.randint(0, H - crop_h + 1, (B,), device=device)
+        left = torch.randint(0, W - crop_w + 1, (B,), device=device)
+
+        cropped_images = torch.zeros_like(image_batch)
+        cropped_masks = torch.zeros_like(mask_batch)
+        for i in range(B):
+            cropped_images[i] = F.interpolate(
+                image_batch[i:i+1, :, top[i]:top[i]+crop_h, left[i]:left[i]+crop_w],
+                size=(H, W), mode='bilinear', align_corners=False
+            )
+            cropped_masks[i] = F.interpolate(
+                mask_batch[i:i+1, :, top[i]:top[i]+crop_h, left[i]:left[i]+crop_w],
+                size=(H, W), mode='nearest'
+            )
+        image_batch = cropped_images
+        mask_batch = cropped_masks
+
+    # -----------------------------
+    # 4. Color jitter
+    # -----------------------------
+    b_factors = 1.0 + (torch.rand(B,1,1,1, device=device, dtype=dtype) * 2 - 1) * brightness
+    image_batch = image_batch * b_factors
+
+    mean = image_batch.mean(dim=[2,3], keepdim=True)
+    c_factors = 1.0 + (torch.rand(B,1,1,1, device=device, dtype=dtype) * 2 - 1) * contrast
+    image_batch = (image_batch - mean) * c_factors + mean
+
+    if C == 3:
+        gray = image_batch.mean(dim=1, keepdim=True)
+        s_factors = 1.0 + (torch.rand(B,1,1,1, device=device, dtype=dtype) * 2 - 1) * saturation
+        image_batch = (image_batch - gray) * s_factors + gray
+
+    # -----------------------------
+    # 5. Clamp to [0,1] range
+    # -----------------------------
+    image_batch = image_batch.clamp(0, 1)
+    mask_batch = mask_batch.clamp(0, 1)
+
+    return image_batch, mask_batch
+
     
