@@ -90,7 +90,7 @@ baseline_model_path = "Baseline_latent_uniforming"
 training_baseline_model = True
 
 epochs = 100
-bs = 7
+bs = 6
 lr = 1e-4
 patience = 5
 train_set_fraction = 0.4
