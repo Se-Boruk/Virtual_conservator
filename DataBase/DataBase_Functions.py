@@ -204,23 +204,13 @@ class Async_DataLoader():
     def _start_prefetch(self):
         
         def get_chunk():
-            
-            """
-            Functions for getting start idx and end idx of batch 
-            (for indexes list as we shuffle)
-            """
-        
-            #Lock function so we only can acces it from one thread (worker)
-            #It assures that we cannot have the same batch operated twice
             with self.idx_lock:
                 start = self.next_idx
-                
-                if start >= len(self.dataset):
+                if start >= self.effective_len:  # use effective length
                     return None, None
                 
-                end = min(start + self.batch_size, len(self.dataset))
+                end = min(start + self.batch_size, self.effective_len)  # use effective length
                 self.next_idx = end
-                
                 return start, end
 
 
@@ -301,30 +291,28 @@ class Async_DataLoader():
             self.threads.append(t)
 
     def start_epoch(self, shuffle=True):
-        
-        """Start a new epoch. It resets queue and shuffle data."""
-        
         self.queue = Queue(maxsize=self.queue.maxsize)
         self.next_idx = 0
         self.active_workers = self.num_workers
-        
-        #Create worker threads only once
+    
         if not self.threads_started:
             self._start_prefetch()
             self.threads_started = True
-            
-        #Shuffle and optionally reduce dataset fraction
+    
+        # Shuffle and optionally reduce dataset fraction
         indices = np.arange(len(self.dataset))
         if shuffle:
             np.random.shuffle(indices)
-
+    
         if self.fraction is not None and 0 < self.fraction < 1:
             reduced_size = int(len(indices) * self.fraction)
-            indices = indices[:reduced_size]  # take only fraction of dataset
-        
-        self.indices = list(indices)
             
-        self.epoch_event.set() #It allows workers to start
+            indices = np.random.choice(indices, size=reduced_size, replace=False)
+    
+        self.indices = list(indices)
+        self.effective_len = len(self.indices)  #store effective lenght
+    
+        self.epoch_event.set()
         
         
 
@@ -341,16 +329,10 @@ class Async_DataLoader():
         return batch
 
     def get_num_batches(self):
-        """
-        Get number of batches (steps) for the current epoch, 
-        taking into account fraction of dataset if specified.
-        """
-        # Determine effective dataset length for this epoch
-        if self.fraction is not None and 0 < self.fraction < 1:
-            effective_len = int(len(self.dataset) * self.fraction)
+        if hasattr(self, "effective_len"):
+            effective_len = self.effective_len
         else:
             effective_len = len(self.dataset)
-
         steps = (effective_len + self.batch_size - 1) // self.batch_size
         return steps
 

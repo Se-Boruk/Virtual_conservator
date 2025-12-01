@@ -85,12 +85,12 @@ Reconstruction_data_tests(train_subset = Train_set,
 ###################################################################
 
 #Hyperparams for training
-model_ID = "Baseline_latent_uniforming"
+model_ID = "V4 Baseline"
 baseline_model_path = "Baseline_latent_uniforming"
 training_baseline_model = True
 
 epochs = 100
-bs = 12
+bs = 7
 lr = 1e-4
 patience = 5
 train_set_fraction = 0.4
@@ -101,7 +101,7 @@ ssim_weight = 0.05
 tv_weight=  0.001
 
 #Cluster based weights
-latent_weight = 0.2           #weight of this loss compared to the others
+latent_weight = 0.1           #weight of this loss compared to the others
 
 #Datalodaers params
 n_workers = 4
@@ -111,7 +111,7 @@ max_queue = 10
 input_channels = 3  #Same as data channels if the input is rgb only (harder problem)
                     #If we can apply also the mask then it will be 4
                     
-n_residual_blocks = 2
+n_residual_blocks = 6
 base_filters = 32
 
 
@@ -179,13 +179,13 @@ img_w = train_loader.W
 
 #Creating Inpainter model
 print("\nPreparing Inpainter Encoder...")
-Inpainter_encoder = Architectures.Inpainter_V3.Encoder(input_channels = input_channels,
+Inpainter_encoder = Architectures.Inpainter_V4.Encoder(input_channels = input_channels,
                                                      n_residual=n_residual_blocks,
                                                      base_filters=base_filters
                                                      ).to('cpu')
 
 print("\nPreparing Inpainter Decoder...")
-Inpainter_decoder = Architectures.Inpainter_V3.Decoder(output_channels = input_channels,
+Inpainter_decoder = Architectures.Inpainter_V4.Decoder(output_channels = input_channels,
                                                        base_filters=base_filters
                                                        ).to('cpu')
 
