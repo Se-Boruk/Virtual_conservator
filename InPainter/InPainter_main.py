@@ -35,7 +35,7 @@ import Inpainter_functions as Inp_f
 #Other libs
 import comet_ml
 import torch
-
+import torch.nn.functional as F
 
 
 ###################################################################
@@ -85,15 +85,23 @@ Reconstruction_data_tests(train_subset = Train_set,
 ###################################################################
 
 #Hyperparams for training
+model_ID = "V5 Baseline"
+baseline_model_path = "Baseline_latent_uniforming"
+training_baseline_model = True
+
 epochs = 100
-bs = 16
+bs = 6
 lr = 1e-4
-patience = 7
+patience = 5
+train_set_fraction = 0.4
 
 l1_weight = 1
 l2_weight = 0.1
 ssim_weight = 0.05
 tv_weight=  0.001
+
+#Cluster based weights
+latent_weight = 0.1           #weight of this loss compared to the others
 
 #Datalodaers params
 n_workers = 4
@@ -102,7 +110,8 @@ max_queue = 10
 #Inpainter model params
 input_channels = 3  #Same as data channels if the input is rgb only (harder problem)
                     #If we can apply also the mask then it will be 4
-n_residual_blocks = 3
+                    
+n_residual_blocks = 6
 base_filters = 32
 
 
@@ -129,7 +138,9 @@ train_loader = Async_DataLoader(dataset = Train_set,
                                 device='cuda',
                                 max_queue=max_queue,
                                 add_damaged = True,
-                                label_map = shared_mapping
+                                add_augmented = True,
+                                label_map = shared_mapping,
+                                fraction = train_set_fraction
                                 )
 
 # Validation loader
@@ -139,7 +150,9 @@ val_loader = Async_DataLoader(dataset = Val_set,
                               device='cuda',
                               max_queue=max_queue,
                               add_damaged = True,
-                              label_map = shared_mapping
+                              add_augmented = True,
+                              label_map = shared_mapping,
+                              fraction = None
                               )
 
 # Test loader
@@ -149,7 +162,9 @@ test_loader = Async_DataLoader(dataset = Test_set,
                               device='cuda',
                               max_queue=max_queue,
                               add_damaged = True,
-                              label_map = shared_mapping
+                              add_augmented = True,
+                              label_map = shared_mapping,
+                              fraction = None
                               )
 
 
@@ -164,46 +179,49 @@ img_w = train_loader.W
 
 #Creating Inpainter model
 print("\nPreparing Inpainter Encoder...")
-Inpainter_encoder = Architectures.Inpainter_V2.Encoder(input_channels = input_channels,
+Inpainter_encoder = Architectures.Inpainter_V5.Encoder(input_channels = input_channels,
                                                      n_residual=n_residual_blocks,
                                                      base_filters=base_filters
                                                      ).to('cpu')
 
 print("\nPreparing Inpainter Decoder...")
-Inpainter_decoder = Architectures.Inpainter_V2.Decoder(output_channels = input_channels,
+Inpainter_decoder = Architectures.Inpainter_V5.Decoder(output_channels = input_channels,
                                                        base_filters=base_filters
                                                        ).to('cpu')
 
 
 ##########################
-#Loading the trained encoder weights:
-pretrained_autoencoder_path = "models/Baseline/best_inpainter.pth"    
-checkpoint = torch.load(pretrained_autoencoder_path, map_location='cpu')
-Inpainter_encoder.load_state_dict(checkpoint['encoder_state_dict'])
-
-#Freeze the weights
-for param in Inpainter_encoder.parameters():
-    param.requires_grad = False
-print("Encoder frozen; only decoder will be trained")
+if not training_baseline_model:
+    #Loading the trained encoder weights:
+        
+    pretrained_autoencoder_path = os.path.join("models", baseline_model_path, "best_model.pth")
+    checkpoint = torch.load(pretrained_autoencoder_path, map_location='cpu')
+    Inpainter_encoder.load_state_dict(checkpoint['encoder_state_dict'])
+    
+    #Freeze the weights
+    for param in Inpainter_encoder.parameters():
+        param.requires_grad = False
+    print("Encoder frozen; only decoder will be trained")
 
 #########################
 
 #Optimizer
 #
-"""
-Opt_inpainter = torch.optim.AdamW( list(Inpainter_encoder.parameters()) + list(Inpainter_decoder.parameters()),
-                                  lr=lr,
-                                  betas=(0.9, 0.999),
-                                  weight_decay=1e-6 
-                                  )
-"""
-#New optimizer just for the decoder
-Opt_inpainter = torch.optim.AdamW(
-    list(Inpainter_decoder.parameters()), 
-    lr=lr,
-    betas=(0.9, 0.999),
-    weight_decay=1e-6
-)
+if training_baseline_model:
+
+    Opt_inpainter = torch.optim.AdamW( list(Inpainter_encoder.parameters()) + list(Inpainter_decoder.parameters()),
+                                      lr=lr,
+                                      betas=(0.9, 0.999),
+                                      weight_decay=1e-6 
+                                      )
+else:
+    #New optimizer just for the decoder
+    Opt_inpainter = torch.optim.AdamW(
+        list(Inpainter_decoder.parameters()), 
+        lr=lr,
+        betas=(0.9, 0.999),
+        weight_decay=1e-6
+    )
 
 
 ###################################################################
@@ -253,7 +271,6 @@ print("Done!")
 ###################################################################
 # ( 7 ) Preparation for saving model results in form of plots and logs
 ###################################################################
-model_ID = "Class_input_100_correct"
 # For plots
 ####
 # Initialize once before training
@@ -311,6 +328,7 @@ comet_experiment.add_tags(["Inpainter", model_ID])
 
 # Hyperparameters
 comet_experiment.log_parameters({
+    "train_set_fraction" : train_set_fraction,
     "epochs": epochs,
     "batch_size": bs,
     "patience": patience,
@@ -320,7 +338,8 @@ comet_experiment.log_parameters({
         "l1": l1_weight,
         "l2": l2_weight,
         "ssim": ssim_weight,
-        "tv": tv_weight
+        "tv": tv_weight,
+        "latent_sim": latent_weight
     }
 })
 
@@ -352,6 +371,7 @@ comet_experiment.log_parameters({
 
 #Scaler for halfprecision training
 scaler = torch.amp.GradScaler()
+global_avg_pool = torch.nn.AdaptiveAvgPool2d((1, 1))
 #Fallback for comet experiment to log the results even if training crashes
 try:
     # initialize early-stopping counters if not already
@@ -378,11 +398,25 @@ try:
                 if batch is None:
                     break
                 
-                #Load batches and normalize them to -1 1 range
-                original_batch = (batch[0] * 2)-1
-                damaged_batch = (batch[1] * 2)-1
+                #Unload_batch
+                original_batch = batch['original']
+                damaged_batch = batch['original_damaged']
                 
-                artificial_labels = batch[2]
+                aug_batch = batch['augmented']
+                aug_damaged_batch = batch['augmented_damaged']
+                
+                artificial_labels = batch['labels']
+
+                
+                #Load batches and normalize them to -1 1 range
+                original_batch = (original_batch * 2)-1
+                damaged_batch = (damaged_batch * 2)-1
+                
+                aug_batch = (aug_batch * 2)-1
+                aug_damaged_batch = (aug_damaged_batch * 2)-1
+                
+
+
                 ##############################
                 #Simulate training 
                 
@@ -394,28 +428,65 @@ try:
                     latent_tensor, skips = Inpainter_encoder(damaged_batch)
                     s0, s1, s2 = skips
                     
+                    #Make restored batch aug
+                    latent_tensor_aug, skips_aug = Inpainter_encoder(aug_damaged_batch)
+                    s0_a, s1_a, s2_a = skips_aug
+                    
                     #==============================================================
                     #Palce for the clusterization from the latent tensor.
-                    #Now its just filled with 0s for the baseline
-                    
-                    #bs = damaged_batch.shape[0]
-                    #class_vector = torch.zeros(bs,1, device=damaged_batch.device)
+                    #Now its just filled with 0s for the baseline (if baseline is trained)
+                    if training_baseline_model:
+                        bs = damaged_batch.shape[0]
+                        class_vector = torch.zeros(bs,1, device=damaged_batch.device)
                     #==============================================================
 
 
                     #Now we use artificial labels from the dataset (assuming we got 100% accuracy check if we can make improvement)
                     restored_batch = Inpainter_decoder(latent_tensor, s0, s1, s2, artificial_labels)
+                    restored_aug_batch = Inpainter_decoder(latent_tensor_aug, s0_a, s1_a, s2_a, artificial_labels)
                     
 
-                    #Loss function calculation
-                    Loss = Inp_f.inpainting_loss(pred = restored_batch,
-                                                 target = original_batch,
-                                                 l1_weight = l1_weight,
-                                                 l2_weight = l2_weight,
-                                                 ssim_weight = ssim_weight,
-                                                 tv_weight = tv_weight
-                                                 )
-                
+                    #Loss function calculation (inpainting)
+                    Loss_origin = Inp_f.inpainting_loss(pred = restored_batch,
+                                                        target = original_batch,
+                                                        l1_weight = l1_weight,
+                                                        l2_weight = l2_weight,
+                                                        ssim_weight = ssim_weight,
+                                                        tv_weight = tv_weight
+                                                        )
+                    
+                    Loss_aug = Inp_f.inpainting_loss(pred = restored_aug_batch,
+                                                     target = aug_batch,
+                                                     l1_weight = l1_weight,
+                                                     l2_weight = l2_weight,
+                                                     ssim_weight = ssim_weight,
+                                                     tv_weight = tv_weight
+                                                     )
+                    
+                    
+                    #Loss function calculation (latent similarity)
+                    ######################################### 
+
+                    
+                    #Take part of vector so only this part is forced to be similar (other part can encode repair and mask more easily)
+                    z0 = global_avg_pool(latent_tensor).view(latent_tensor.size(0), -1)
+                    z1 = global_avg_pool(latent_tensor_aug).view(latent_tensor.size(0), -1)
+                    
+                    # Normalize
+                    z0 = F.normalize(z0, dim=1)
+                    z1 = F.normalize(z1, dim=1)
+                    
+                    # Per-sample cosine similarity (so we do not mix the losses to not mix uinrelated samples)
+                    loss_cos_per_sample = 1 - F.cosine_similarity(z0, z1, dim=1)
+                    
+                    #Mean
+                    loss_cos = loss_cos_per_sample.mean()
+                    #########################################
+                    
+                    #Calculate the final loss
+                    Loss = (Loss_origin + Loss_aug) / 2 + loss_cos * latent_weight
+                    
+                    
                 #Gradients update with exception for explosion (addon for adding I suppose, model would collapse anyway though)
                 if torch.isfinite(Loss):
                     Opt_inpainter.zero_grad()
@@ -432,9 +503,9 @@ try:
                 #Finished training step, log scores and calculate avg times
                 pbar.update(1)
                 pbar.set_postfix( { "train_loss": f"{Loss.item():.4f}" } )
+
                 
                 
-    
         #################################################
         #Validation part
         #################################################
@@ -454,39 +525,77 @@ try:
                 if batch is None:
                     break
                 
+                #Unload batch
+                original_batch_v = batch['original']
+                damaged_batch_v = batch['original_damaged']
+                
+                aug_batch_v = batch['augmented']
+                aug_damaged_batch_v = batch['augmented_damaged']
+                
+                artificial_labels_v = batch['labels']
+
                 #Normalize
-                original_batch_v = (batch[0] * 2)-1
-                damaged_batch_v = (batch[1] * 2)-1
-                artificial_labels = batch[2]
+                original_batch_v = (original_batch_v * 2) - 1
+                damaged_batch_v = (damaged_batch_v * 2) - 1
+                aug_batch_v = (aug_batch_v * 2) - 1
+                aug_damaged_batch_v = (aug_damaged_batch_v * 2) - 1
 
                 ##############################
                 # simulate validation forward (same ops as train but no optimizer step)
                 with torch.no_grad():
                     with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        # Encode original damaged batch
                         latent_tensor_v, skips_v = Inpainter_encoder(damaged_batch_v)
                         vs0, vs1, vs2 = skips_v
 
-                        #For use in baseline - 0ed vector
-                        #bs_v = damaged_batch_v.shape[0]
-                        #class_vector_v = torch.zeros(bs_v,1, device=damaged_batch_v.device)
+                        # Encode augmented damaged batch
+                        latent_tensor_aug_v, skips_aug_v = Inpainter_encoder(aug_damaged_batch_v)
+                        vs0_a, vs1_a, vs2_a = skips_aug_v
 
-                        #Now we use artificial labels from the dataset (assuming we got 100% accuracy check if we can make improvement)
-                        restored_batch_v = Inpainter_decoder(latent_tensor_v, vs0, vs1, vs2, artificial_labels)
+                        # Decode
+                        restored_batch_v = Inpainter_decoder(latent_tensor_v, vs0, vs1, vs2, artificial_labels_v)
+                        restored_aug_batch_v = Inpainter_decoder(latent_tensor_aug_v, vs0_a, vs1_a, vs2_a, artificial_labels_v)
 
-                        Loss_v = Inp_f.inpainting_loss(pred = restored_batch_v,
-                                                       target = original_batch_v,
-                                                       l1_weight = l1_weight,
-                                                       l2_weight = l2_weight,
-                                                       ssim_weight = ssim_weight,
-                                                       tv_weight = tv_weight
-                                                       )
-                ##############################
+                        # Inpainting loss
+                        Loss_origin_v = Inp_f.inpainting_loss(
+                            pred=restored_batch_v,
+                            target=original_batch_v,
+                            l1_weight=l1_weight,
+                            l2_weight=l2_weight,
+                            ssim_weight=ssim_weight,
+                            tv_weight=tv_weight
+                        )
+
+                        Loss_aug_v = Inp_f.inpainting_loss(
+                            pred=restored_aug_batch_v,
+                            target=aug_batch_v,
+                            l1_weight=l1_weight,
+                            l2_weight=l2_weight,
+                            ssim_weight=ssim_weight,
+                            tv_weight=tv_weight
+                        )
+
+                        # Latent similarity
+                        z0_v = global_avg_pool(latent_tensor_v).view(latent_tensor_v.size(0), -1)
+                        z1_v = global_avg_pool(latent_tensor_aug_v).view(latent_tensor_aug_v.size(0), -1)
+
+                        # Normalize
+                        z0_v = F.normalize(z0_v, dim=1)
+                        z1_v = F.normalize(z1_v, dim=1)
+
+                        # Per-sample cosine similarity
+                        loss_cos_per_sample_v = 1 - F.cosine_similarity(z0_v, z1_v, dim=1)
+
+                        # Mean latent similarity loss
+                        loss_cos_v = loss_cos_per_sample_v.mean()
+
+                        # Final validation loss (same weighting as train)
+                        Loss_v = (Loss_origin_v + Loss_aug_v) / 2 + loss_cos_v * latent_weight
 
                 # track val loss (sum of per-batch loss items)
                 val_epoch_loss += Loss_v.item()
 
-                # update progressbar/time (kept similar style; no t0/t1 used)
-                # approximate time bookkeeping kept simple
+                # update progressbar/time
                 batch_val_times.append(0.0)
                 avg_time = sum(batch_val_times) / max(1, len(batch_val_times))
                 pbar.update(1)
@@ -510,9 +619,6 @@ try:
             writer.writerow([e+1, avg_epoch_loss, avg_val_loss])
 
 
-          
-            
-          
         # Save by best validation loss and handle patience
         ###################################################################
         if avg_val_loss < best_val_loss:

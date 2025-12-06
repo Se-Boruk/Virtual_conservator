@@ -157,13 +157,13 @@ Inpainter_decoder_maxclass = Architectures.Inpainter_V2.Decoder(output_channels 
 
 ##########################
 #Loading the trained encoder weights:
-pretrained_autoencoder_path = "models/Baseline/best_inpainter.pth"    
+pretrained_autoencoder_path = "models/V2_No_latent_uniforming/Baseline/best_inpainter.pth"    
 checkpoint = torch.load(pretrained_autoencoder_path, map_location='cpu')
 Inpainter_encoder_baseline.load_state_dict(checkpoint['encoder_state_dict'])
 Inpainter_decoder_baseline.load_state_dict(checkpoint['decoder_state_dict'])
 
 #Loading the trained encoder weights:
-pretrained_autoencoder_path = "models/Class_input_100_correct/best_inpainter.pth"    
+pretrained_autoencoder_path = "models/V2_No_latent_uniforming/Class_input_100_correct/best_inpainter.pth"    
 checkpoint = torch.load(pretrained_autoencoder_path, map_location='cpu')
 Inpainter_encoder_maxclass.load_state_dict(checkpoint['encoder_state_dict'])
 Inpainter_decoder_maxclass.load_state_dict(checkpoint['decoder_state_dict'])
@@ -203,13 +203,21 @@ visualizer_maxclass = Inp_f.InpaintingVisualizer(Inpainter_encoder_maxclass, Inp
 
 #Random sample from the test set so its not affecting training in any way
 visual_batch = test_loader.get_random_batch(batch_size = Visualization_rows, shuffle = True, random_state = RANDOM_STATE)
+
+#Apply small augmentation
+########################
+shared_masks = visualizer_baseline.masks
+from DataBase_Functions import augment_image_and_mask
+
+visual_batch, shared_mask = augment_image_and_mask( visual_batch, shared_masks )
 visual_batch = (visual_batch *2)-1
 
-
 #Ensure the same mask
-shared_masks = visualizer_baseline.masks
-
+visualizer_baseline.masks = shared_masks 
 visualizer_maxclass.masks = shared_masks
+
+#####################
+
 
 
 #Visualize baseline
