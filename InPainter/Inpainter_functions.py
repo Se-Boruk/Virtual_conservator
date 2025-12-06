@@ -119,7 +119,7 @@ class InpaintingVisualizer:
         with torch.inference_mode():
             #Forward through encoder
             latent_tensor, skips = self.encoder(damaged)
-            s0, s1, s2, s3 = skips
+            s0, s1, s2 = skips
             #If the clusterization model is ready this is palce to put it 
             #(to produce class_vector from the latent tensor)
             
@@ -129,7 +129,7 @@ class InpaintingVisualizer:
             #==============================================================
             
             #Forward through decoder
-            restored = self.decoder(latent_tensor, s0, s1, s2, s3, class_vector) 
+            restored = self.decoder(latent_tensor, s0, s1, s2, class_vector) 
             
             restored.detach()
     

@@ -85,7 +85,7 @@ Reconstruction_data_tests(train_subset = Train_set,
 ###################################################################
 
 #Hyperparams for training
-model_ID = "V4 Baseline"
+model_ID = "V5 Baseline"
 baseline_model_path = "Baseline_latent_uniforming"
 training_baseline_model = True
 
@@ -179,13 +179,13 @@ img_w = train_loader.W
 
 #Creating Inpainter model
 print("\nPreparing Inpainter Encoder...")
-Inpainter_encoder = Architectures.Inpainter_V4.Encoder(input_channels = input_channels,
+Inpainter_encoder = Architectures.Inpainter_V5.Encoder(input_channels = input_channels,
                                                      n_residual=n_residual_blocks,
                                                      base_filters=base_filters
                                                      ).to('cpu')
 
 print("\nPreparing Inpainter Decoder...")
-Inpainter_decoder = Architectures.Inpainter_V4.Decoder(output_channels = input_channels,
+Inpainter_decoder = Architectures.Inpainter_V5.Decoder(output_channels = input_channels,
                                                        base_filters=base_filters
                                                        ).to('cpu')
 
@@ -426,11 +426,11 @@ try:
                     
                     #Make restored batch
                     latent_tensor, skips = Inpainter_encoder(damaged_batch)
-                    s0, s1, s2, s3 = skips
+                    s0, s1, s2 = skips
                     
                     #Make restored batch aug
                     latent_tensor_aug, skips_aug = Inpainter_encoder(aug_damaged_batch)
-                    s0_a, s1_a, s2_a, s3_a = skips_aug
+                    s0_a, s1_a, s2_a = skips_aug
                     
                     #==============================================================
                     #Palce for the clusterization from the latent tensor.
@@ -442,8 +442,8 @@ try:
 
 
                     #Now we use artificial labels from the dataset (assuming we got 100% accuracy check if we can make improvement)
-                    restored_batch = Inpainter_decoder(latent_tensor, s0, s1, s2, s3, artificial_labels)
-                    restored_aug_batch = Inpainter_decoder(latent_tensor_aug, s0_a, s1_a, s2_a, s3_a, artificial_labels)
+                    restored_batch = Inpainter_decoder(latent_tensor, s0, s1, s2, artificial_labels)
+                    restored_aug_batch = Inpainter_decoder(latent_tensor_aug, s0_a, s1_a, s2_a, artificial_labels)
                     
 
                     #Loss function calculation (inpainting)
@@ -546,15 +546,15 @@ try:
                     with torch.autocast(device_type='cuda', dtype=torch.float16):
                         # Encode original damaged batch
                         latent_tensor_v, skips_v = Inpainter_encoder(damaged_batch_v)
-                        vs0, vs1, vs2, vs3 = skips_v
+                        vs0, vs1, vs2 = skips_v
 
                         # Encode augmented damaged batch
                         latent_tensor_aug_v, skips_aug_v = Inpainter_encoder(aug_damaged_batch_v)
-                        vs0_a, vs1_a, vs2_a, vs3_a = skips_aug_v
+                        vs0_a, vs1_a, vs2_a = skips_aug_v
 
                         # Decode
-                        restored_batch_v = Inpainter_decoder(latent_tensor_v, vs0, vs1, vs2, vs3, artificial_labels_v)
-                        restored_aug_batch_v = Inpainter_decoder(latent_tensor_aug_v, vs0_a, vs1_a, vs2_a, vs3_a, artificial_labels_v)
+                        restored_batch_v = Inpainter_decoder(latent_tensor_v, vs0, vs1, vs2, artificial_labels_v)
+                        restored_aug_batch_v = Inpainter_decoder(latent_tensor_aug_v, vs0_a, vs1_a, vs2_a, artificial_labels_v)
 
                         # Inpainting loss
                         Loss_origin_v = Inp_f.inpainting_loss(
