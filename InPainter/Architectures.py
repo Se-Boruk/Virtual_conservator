@@ -1673,12 +1673,53 @@ class Inpainter_V5:
         
         
         
+    
+#############################################################
+#Encoder for feature extraction
+#############################################################
+
+class Encoder_v0(nn.Module):
+    def __init__(self, input_channels=3, base_filters=32):
+        super().__init__()
+        f1 = base_filters
+        f2 = base_filters * 2
+        f3 = base_filters * 3
+        f4 = base_filters * 4
+
+        # Encoder
+        self.input_conv_block = nn.Sequential(nn.Conv2d(input_channels, f1, kernel_size = 7, stride = 1, padding = 3),
+                                              nn.InstanceNorm2d(f1, affine=True),
+                                              nn.LeakyReLU(0.2, inplace=True),
+                                            
+                                              nn.Conv2d(f1, f1, kernel_size = 3, stride = 1, padding = 1),
+                                              nn.InstanceNorm2d(f1, affine=True),
+                                              nn.LeakyReLU(0.2, inplace=True)
+                                              )
         
+        #Encoder parts
+        self.enc_0 = Processing_Block(f1,f1)
+        self.down_0 = Downsample_block(f1,f2)
         
+        self.enc_1 = Processing_Block(f2,f2)
+        self.down_1 = Downsample_block(f2,f3)
         
+        self.enc_2 = Processing_Block(f3,f3)
+        self.down_2 = Downsample_block(f3,f4)
         
+
+    def forward(self, x):
+        #Input conv block
+        x = self.input_conv_block(x)
         
+        #Encoder part
+        x_0 = self.enc_0(x)
+        x = self.down_0(x_0)
         
+        x_1 = self.enc_1(x)
+        x = self.down_1(x_1)
         
+        x_2 = self.enc_2(x)
+        x = self.down_2(x_2)
         
+        return x
         

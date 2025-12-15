@@ -29,8 +29,17 @@ class Custom_DataSet_Manager():
             #Create folder if not present 
             os.makedirs(self.dataset_path, exist_ok=True)
     
-            print("Downloading dataset...")
+            print(f"Downloading dataset {dataset_name}...")
             dataset = load_dataset(dataset_name)
+
+            #Extracts only images and styles from database 
+            for split_name in dataset.keys():
+                existing_cols = dataset[split_name].column_names
+                keep = [col for col in ["image", "style"] if col in existing_cols]
+                remove = [col for col in existing_cols if col not in keep]
+                if remove:
+                    dataset[split_name] = dataset[split_name].remove_columns(remove)
+
             dataset.save_to_disk(self.dataset_path)
             
             #Add flag but only if the dataset is completed. 
@@ -38,7 +47,7 @@ class Custom_DataSet_Manager():
             with open(self.flag_file, "w") as f:
                 f.write("downloaded")
     
-            print("Dataset downloaded and flagged!")
+            print("✅ Dataset downloaded and flagged!")
         
         else:
             print("Dataset is alredy downloaded!")
