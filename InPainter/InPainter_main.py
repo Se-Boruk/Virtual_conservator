@@ -7,7 +7,7 @@ import sys
 import os
 from tqdm import tqdm
 import csv
-
+import joblib
 #Go up directly before we can take the Project ROOT from the Config
 #Get the parent folder
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -85,11 +85,15 @@ Reconstruction_data_tests(train_subset = Train_set,
 ###################################################################
 
 #Hyperparams for training
-model_ID = "V5 Baseline"
-baseline_model_path = "Baseline_latent_uniforming"
-training_baseline_model = True
+model_ID = "V5_Baseline_January"
+baseline_model_path = "V5_Baseline_January"
+training_mode = "BASELINE"      #Training with no info about classes  (How model behaves without class info)
+#training_mode = "REAL"         #Training with info about classes from clusterizator 
+#training_mode = "ARTIFICIAL"   #Training with infor about classes from dataset (theoretical performance limit)
 
-epochs = 100
+
+
+epochs = 50
 bs = 6
 lr = 1e-4
 patience = 5
@@ -191,10 +195,10 @@ Inpainter_decoder = Architectures.Inpainter_V5.Decoder(output_channels = input_c
 
 
 ##########################
-if not training_baseline_model:
+if training_mode != "BASELINE":
     #Loading the trained encoder weights:
         
-    pretrained_autoencoder_path = os.path.join("models", baseline_model_path, "best_model.pth")
+    pretrained_autoencoder_path = os.path.join("models", baseline_model_path, "best_inpainter.pth")
     checkpoint = torch.load(pretrained_autoencoder_path, map_location='cpu')
     Inpainter_encoder.load_state_dict(checkpoint['encoder_state_dict'])
     
@@ -207,7 +211,7 @@ if not training_baseline_model:
 
 #Optimizer
 #
-if training_baseline_model:
+if training_mode == "BASELINE":
 
     Opt_inpainter = torch.optim.AdamW( list(Inpainter_encoder.parameters()) + list(Inpainter_decoder.parameters()),
                                       lr=lr,
@@ -363,8 +367,22 @@ comet_experiment.log_parameters({
 # Log model graph
 #comet_experiment.set_model_graph(Inpainter_model)
 
+###################################################################
+# ( 8.1 ) Preparing clusterizer
+###################################################################
+if training_mode == "REAL":
+    pca_loaded = joblib.load(os.path.join("models", baseline_model_path , "pca_model.joblib"))
+    loaded_kmeans = joblib.load(os.path.join("models", baseline_model_path , 'minibatch_kmeans_model.joblib'))
 
-
+    # PCA Parameters
+    # We transpose (.T) because sklearn stores them as (n_components, n_features)
+    # Mathematically, we want: [batch, n_features] @ [n_features, n_components]
+    pca_components = torch.from_numpy(pca_loaded.components_).to(device).T.float()
+    pca_mean = torch.from_numpy(pca_loaded.mean_).to(device).float()
+    
+    # K-Means Parameters
+    # These represent the 'prototypes' in the reduced PCA space
+    kmeans_centroids = torch.from_numpy(loaded_kmeans.cluster_centers_).to(device).float()
 ###################################################################
 # ( 9 ) Training loop
 ###################################################################
@@ -415,8 +433,6 @@ try:
                 aug_batch = (aug_batch * 2)-1
                 aug_damaged_batch = (aug_damaged_batch * 2)-1
                 
-
-
                 ##############################
                 #Simulate training 
                 
@@ -435,15 +451,43 @@ try:
                     #==============================================================
                     #Palce for the clusterization from the latent tensor.
                     #Now its just filled with 0s for the baseline (if baseline is trained)
-                    if training_baseline_model:
+                    if training_mode == "BASELINE":
                         bs = damaged_batch.shape[0]
-                        class_vector = torch.zeros(bs,1, device=damaged_batch.device)
+                        artificial_labels = torch.zeros(bs,1, device=damaged_batch.device)
+                        artificial_labels_aug = artificial_labels
+                        
+                    elif training_mode == "REAL":
+                       # Global average pooling to get feature vectors
+                       z0 = global_avg_pool(latent_tensor).view(latent_tensor.size(0), -1)
+                       z1 = global_avg_pool(latent_tensor_aug).view(latent_tensor.size(0), -1)
+                   
+                       # Project into PCA Space: (X - mu) @ V
+                       z0_pca = torch.mm(z0 - pca_mean, pca_components)
+                       z1_pca = torch.mm(z1 - pca_mean, pca_components)
+                   
+                       # Assign labels based on proximity to Centroids
+                       # distance matrix: [batch_size, n_clusters]
+                       dist_matrix0 = torch.cdist(z0_pca, kmeans_centroids)
+                       dist_matrix1 = torch.cdist(z1_pca, kmeans_centroids)
+                   
+                       # Predict cluster indices (Hard Assignment)
+                       artificial_labels = torch.argmin(dist_matrix0, dim=1).unsqueeze(1)
+                       artificial_labels_aug = torch.argmin(dist_matrix1, dim=1).unsqueeze(1)
+                       
+                       artificial_labels = artificial_labels.to(z0.dtype)
+                       artificial_labels_aug = artificial_labels_aug.to(z0.dtype)
+                        
+                    elif training_mode == "ARTIFICIAL":
+                        artificial_labels_aug = artificial_labels
+
+                    else:
+                        artificial_labels_aug = artificial_labels #Same as artificial
                     #==============================================================
 
 
                     #Now we use artificial labels from the dataset (assuming we got 100% accuracy check if we can make improvement)
                     restored_batch = Inpainter_decoder(latent_tensor, s0, s1, s2, artificial_labels)
-                    restored_aug_batch = Inpainter_decoder(latent_tensor_aug, s0_a, s1_a, s2_a, artificial_labels)
+                    restored_aug_batch = Inpainter_decoder(latent_tensor_aug, s0_a, s1_a, s2_a, artificial_labels_aug)
                     
 
                     #Loss function calculation (inpainting)
@@ -551,10 +595,46 @@ try:
                         # Encode augmented damaged batch
                         latent_tensor_aug_v, skips_aug_v = Inpainter_encoder(aug_damaged_batch_v)
                         vs0_a, vs1_a, vs2_a = skips_aug_v
+                    
+
+                        #==============================================================
+                        #Palce for the clusterization from the latent tensor.
+                        #Now its just filled with 0s for the baseline (if baseline is trained)
+                        if training_mode == "BASELINE":
+                            bs = damaged_batch.shape[0]
+                            artificial_labels_v = torch.zeros(bs,1, device=damaged_batch_v.device)
+                            artificial_labels_v_aug= artificial_labels_v
+                            
+                        elif training_mode == "REAL":
+                            # 1. Latent Feature Extraction
+                            z0_v = global_avg_pool(latent_tensor_v).view(latent_tensor_v.size(0), -1)
+                            z1_v = global_avg_pool(latent_tensor_aug_v).view(latent_tensor_aug_v.size(0), -1)
+                            
+                            # 2. GPU PCA Projection
+                            # Using the same pre-loaded pca_mean and pca_components
+                            z0_v_pca = torch.mm(z0_v - pca_mean, pca_components)
+                            z1_v_pca = torch.mm(z1_v - pca_mean, pca_components)
+                            
+                            # 3. GPU K-Means Prediction
+                            # Compute distances to pre-loaded kmeans_centroids
+                            dist_matrix_v0 = torch.cdist(z0_v_pca, kmeans_centroids)
+                            dist_matrix_v1 = torch.cdist(z1_v_pca, kmeans_centroids)
+                            
+                            # Hard assignment of labels
+                            artificial_labels_v = torch.argmin(dist_matrix_v0, dim=1).unsqueeze(1)
+                            artificial_labels_v_aug = torch.argmin(dist_matrix_v1, dim=1).unsqueeze(1)
+
+                            artificial_labels_v = artificial_labels.to(z0.dtype)
+                            artificial_labels_v_aug = artificial_labels_aug.to(z0.dtype)
+                            
+                        else:
+                            artificial_labels_v_aug = artificial_labels_v #Same as artificial
+                        #==============================================================
+                        
 
                         # Decode
                         restored_batch_v = Inpainter_decoder(latent_tensor_v, vs0, vs1, vs2, artificial_labels_v)
-                        restored_aug_batch_v = Inpainter_decoder(latent_tensor_aug_v, vs0_a, vs1_a, vs2_a, artificial_labels_v)
+                        restored_aug_batch_v = Inpainter_decoder(latent_tensor_aug_v, vs0_a, vs1_a, vs2_a, artificial_labels_v_aug)
 
                         # Inpainting loss
                         Loss_origin_v = Inp_f.inpainting_loss(
@@ -600,6 +680,7 @@ try:
                 avg_time = sum(batch_val_times) / max(1, len(batch_val_times))
                 pbar.update(1)
                 pbar.set_postfix({"avg_batch_time_ms": f"{avg_time*1000:.2f}", "val_loss_batch": f"{Loss_v.item():.4f}"})
+
 
         #After epoch is finished
         ##########################################
