@@ -1,3 +1,6 @@
+###################################################################
+# ( 1 ) Libs
+###################################################################
 import sys
 import os
 from PyQt6 import uic
@@ -8,27 +11,33 @@ import time
 import numpy as np
 import pyarrow as pa
 from PIL import Image
+from DataBase.DataBase_Functions import Random_Damage_Generator
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image
+
+###################################################################
+# ( 2 ) Class encoder, contains all functions for image processing
+###################################################################
 
 class Encoder:
     def __init__(self):
         self.image_path = None
 
     def convert_to_arrow(self, path):
-        """Konwertuje plik obrazu do formatu tabelarycznego Apache Arrow"""
+        """Converts a JPG image to an Apache Arrow Table"""
         try:
-            # 1. Otwarcie obrazu i konwersja na tablicę NumPy (RGB)
+            # Open image using PIL
             img = Image.open(path).convert('RGB')
             img_data = np.array(img)
             
-            # Pobieramy wymiary
+            # Download image dimensions
             height, width, channels = img_data.shape
             
-            # 2. Spłaszczamy dane do formy wektora (dla tabeli Arrow)
-            # Każdy wiersz w tabeli może reprezentować jeden piksel lub cały obraz jako blob
             flat_data = img_data.tobytes()
             
-            # 3. Tworzymy strukturę danych Arrow
-            # Tutaj zapisujemy metadane (wymiary) oraz same dane binarnie
+            # Create Arrow Table
             data = [
                 pa.array([width]),
                 pa.array([height]),
@@ -45,20 +54,20 @@ class Encoder:
             return None
         
     def arrow_to_jpg(self, output_path="result.jpg"):
-        """Konwertuje tabelę Apache Arrow z powrotem na plik JPG"""
+        """Converts an Apache Arrow Table back to a JPG image"""
+
+        output_path = "GUI/" + output_path
         try:
-            # 1. Ekstrakcja danych z tabeli Arrow
-            # Pobieramy pierwszy element z każdej kolumny
+            # Extract data from the Arrow table
             width = self.image_as_table.column('width')[0].as_py()
             height = self.image_as_table.column('height')[0].as_py()
             image_bytes = self.image_as_table.column('image_bytes')[0].as_py()
 
-            # 2. Konwersja bajtów z powrotem na tablicę NumPy
-            # Musimy wiedzieć, że obraz był w formacie RGB (3 kanały)
+            # Convert bytes back to a NumPy array (RGB - 3 channels)
             flat_data = np.frombuffer(image_bytes, dtype=np.uint8)
             img_data = flat_data.reshape((height, width, 3))
 
-            # 3. Tworzenie obiektu obrazu PIL i zapis do JPG
+            # 3. Create a PIL image object and save as JPG
             img = Image.fromarray(img_data, 'RGB')
             img.save(output_path, "JPEG")
 
@@ -68,12 +77,63 @@ class Encoder:
         except Exception as e:
             print(f"Błąd konwersji z Arrow do JPG: {e}")
             return None
+        
+    def save_tensor_as_jpg(self, image_tensor, output_path="damaged_output.jpg"):
+        """
+        image_tensor: Tensor of shape (1, C, H, W) or (C, H, W) in range [0, 1]
+        output_path: File save path
+        """
+        # Remove the Batch dimension (if it exists) and move to CPU
+        if image_tensor.dim() == 4:
+            image_tensor = image_tensor.squeeze(0)
+        
+        # Conversion: (C, H, W) -> (H, W, C)
+        img_np = image_tensor.permute(1, 2, 0).cpu().numpy()
+        
+        # Scale to [0, 255] and convert to integer type (uint8)
+        img_np = (img_np * 255.0).clip(0, 255).astype(np.uint8)
+        
+        # Create PIL Image object and save
+        final_image = Image.fromarray(img_np)
+        final_image.save(output_path, quality=95)
+        return output_path
 
     def crash_image(self):
         print("Crashing image...")
-        crashed_img = self.convert_to_arrow(self.image_path)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        try:
+            # Load, convert to RGB and resize (class default uses shape 256x256)
+            original_pil = Image.open(self.image_path).convert("RGB")
+            original_pil = original_pil.resize((256, 256)) 
+            
+            # Convert to numpy array and normalize to [0, 1] range
+            img_np = np.array(original_pil, dtype=np.float32) / 255.0
+            
+            # Convert to PyTorch tensor: (H, W, C) -> (C, H, W) -> (B, C, H, W)
+            # B (Batch) = 1
+            img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device)
+        except FileNotFoundError:
+            # If the file is not found, generate noise so the code remains functional
+            print("Nie znaleziono pliku, używam losowego szumu.")
+            img_tensor = torch.rand((1, 3, 256, 256)).to(device)
+
+        # Initialize the damage generator
+        dmg_gen = Random_Damage_Generator(device=device)
+
+        # Generate mask with expected shape (B, H, W)
+        B, C, H, W = img_tensor.shape
+        mask, metadata = dmg_gen.generate(shape=(B, H, W))
+
+        # Apply damage (following logic in Async_DataLoader)
+        # Add channel dimension to the mask: (B, 1, H, W)
+        damaged_img_tensor = img_tensor * (1.0 - mask.unsqueeze(1))
+
+        damaged_image_path = self.save_tensor_as_jpg(damaged_img_tensor, "crashed_image.jpg")
+        
+        crashed_img = self.convert_to_arrow(damaged_image_path)
         self.crashed_img_arrow = crashed_img
-        return self.arrow_to_jpg("crashed_image.jpg")
+        return damaged_image_path
 
     def Auto_encode(self):
         print("Auto encoding image...")
@@ -84,6 +144,10 @@ class Encoder:
         print("Upscaling image...")
         self.upscaled_image = self.fixed_image
         return self.arrow_to_jpg("upscaled_image.jpg")
+    
+###################################################################
+# ( 3 ) Class GUI, responsible for the graphical interface
+###################################################################
         
 class GUI():
     def __init__(self):
@@ -94,12 +158,12 @@ class GUI():
 
     def klikniecie_w_obraz(self, event):
         """
-        Ta funkcja zastąpi standardowe zachowanie labela przy kliknięciu.
-        Argument 'event' jest przekazywany automatycznie przez PyQt.
+        This function replaces the standard label behavior on click.
+        The 'event' argument is passed automatically by PyQt.
         """
-        # Sprawdzamy, czy kliknięto Lewym Przyciskiem Myszy
+        # Check if Left Mouse Button was clicked
         if event.button() == Qt.MouseButton.LeftButton:
-            # Otwieramy okno wyboru pliku
+            # Open file dialog
             plik, _ = QFileDialog.getOpenFileName(
                 self.window, 
                 "Wybierz zdjęcie", 
@@ -108,11 +172,11 @@ class GUI():
             )
 
             if plik:
-                # Tworzymy obraz
+                # Create the image
                 self.image = plik
                 pixmap = QPixmap(plik)
                 
-                # Skalujemy do rozmiaru ramki
+                # Scale to frame size
                 wymiar_ramki = self.window.imageLabel.size()
                 skalowane_foto = pixmap.scaled(
                     wymiar_ramki,
@@ -120,70 +184,64 @@ class GUI():
                     Qt.TransformationMode.SmoothTransformation
                 )
                 
-                # Ustawiamy obraz
+                # Set the image
                 self.window.imageLabel.setPixmap(skalowane_foto)
-                self.window.imageLabel.setText("")  # Czyścimy tekst "Brak zdjęcia"
+                self.window.imageLabel.setText("")  # Clear the "Brak zdjęcia" (No image) text
                 self.window.btnStart.setEnabled(True)
                 self.aktualizuj_status("Click start to process the image")
     
     def drugie_okno(self):
-        """Funkcja ładująca i wyświetlająca Second_window.ui"""
-        # 1. Zmieniamy status na przetwarzanie
+        """Function loading and displaying Second_window.ui"""
+        # Change status to processing
         self.aktualizuj_status("Processing...")
-        QCoreApplication.processEvents() # Odświeżamy UI, by napis się pojawił
+        QCoreApplication.processEvents() # Refresh UI so the label updates
         
-        # Symulacja czasu pracy (np. 1 sekunda)
+        # Simulate processing time (e.g., 1 second)
         time.sleep(1)
 
-        # 2. Ładujemy drugie okno, jeśli jeszcze nie istnieje
+        # Load the second window if it doesn't exist yet
         if self.second_window is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            second_ui_path = os.path.join(current_dir, "Second_window.ui")
+            second_ui_path = os.path.join(current_dir, "GUI/Second_window.ui")
             self.second_window = uic.loadUi(second_ui_path)
 
-        # 3. Wyświetlamy drugie okno
+        # Display the second window
         self.second_window.show()
-        
-        # 4. (Opcjonalnie) Możemy ukryć pierwsze okno:
-        # self.window.hide()
         
         self.aktualizuj_status("Done! Window opened.")
 
     def trzecie_okno(self):
-        """Funkcja ładująca i wyświetlająca Third_window.ui"""
-        # 1. Zmieniamy status na przetwarzanie
+        """Function loading and displaying Third_window.ui"""
+        # Change status to processing
         self.aktualizuj_status("Processing...")
-        QCoreApplication.processEvents() # Odświeżamy UI, by napis się pojawił
+        QCoreApplication.processEvents() # Refresh UI so the label updates
         
-        # Symulacja czasu pracy (np. 1 sekunda)
+        # Simulate processing time (e.g., 1 second)
         time.sleep(1)
 
-        # 2. Ładujemy drugie okno, jeśli jeszcze nie istnieje
+        # Load the third window if it doesn't exist yet
         if self.third_window is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            third_ui_path = os.path.join(current_dir, "Third_window.ui")
+            third_ui_path = os.path.join(current_dir, "GUI/Third_window.ui")
             self.third_window = uic.loadUi(third_ui_path)
 
-        # 3. Wyświetlamy drugie okno
+        # Display the third window
         self.third_window.show()
-        
-        # 4. (Opcjonalnie) Możemy ukryć pierwsze okno:
-        # self.window.hide()
         
         self.aktualizuj_status("Done! Window opened.")
 
     def wyczysc_wszystko(self):
-        """Funkcja do czyszczenia obrazu i resetowania statusu"""
+        """Function to clear image and reset status"""
         self.window.imageLabel.clear()
         self.window.imageLabel.setText("Click to add image")
         self.aktualizuj_status("Image cleared. Click to add a new image.")
         self.window.btnStart.setEnabled(False)
 
     def start_process(self):
-        """Funkcja wywoływana po kliknięciu Start - sprawdza DropDown i wybiera okno"""
+        """Function called on Start click - checks DropDown and selects window"""
         wybor = self.window.DropDown.currentText()
 
-        E = Encoder()  # Inicjalizacja klasy Encoder
+        E = Encoder()  # Initialize Encoder class
         E.image_path = self.image
         path1 = E.crash_image()
         path2 = E.Auto_encode()
@@ -205,7 +263,7 @@ class GUI():
             self.aktualizuj_status("Select an option first!")
 
     def ustaw_obraz_w_labelu(self, label_obj, sciezka_obrazu):
-        """Pomocnicza funkcja do ładowania obrazu do konkretnego labela"""
+        """Helper function to load an image into a specific label"""
         pixmap = QPixmap(sciezka_obrazu)
         if not pixmap.isNull():
             label_obj.setPixmap(pixmap.scaled(
@@ -216,29 +274,31 @@ class GUI():
             label_obj.setText("")
 
     def aktualizuj_status(self, tekst):
-        """Pomocnicza funkcja do zmiany tekstu w dolnej etykiecie"""
+        """Helper function to change the text in the bottom label"""
         self.window.label.setText(tekst)
 
-    # --- GŁÓWNA CZĘŚĆ PROGRAMU ---
+###################################################################
+# ( 4 ) RUN GUI
+###################################################################
 
     def run(self):
         app = QApplication(sys.argv)
 
-        # Ustalenie ścieżki do pliku .ui
+        # Determine path to .ui file
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        ui_file_path = os.path.join(current_dir, "Main_window.ui")
+        ui_file_path = os.path.join(current_dir, "GUI/Main_window.ui")
 
         try:
             self.window = uic.loadUi(ui_file_path)
             self.window.btnStart.setEnabled(False)
 
-            # Nadpisujemy metodę mousePressEvent dla elementu imageLabel.
+            # Override the mousePressEvent method for the imageLabel element
             self.window.imageLabel.mousePressEvent = self.klikniecie_w_obraz
 
-            # Zmieniamy kursor na "łapkę" po najechaniu na obszar zdjęcia,
+            # Change cursor to "pointing hand" when hovering over the image area
             self.window.imageLabel.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
-            # Obsługa pozostałych przycisków 
+            # Handle remaining buttons 
             if hasattr(self.window, 'btnExit'):
                 self.window.btnExit.clicked.connect(self.window.close)
             
