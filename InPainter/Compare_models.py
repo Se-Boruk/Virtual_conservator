@@ -9,7 +9,7 @@ import joblib
 from tqdm import tqdm
 import torch
 import torch.nn.functional as F
-import comet_ml
+
 
 # Path setup
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +21,7 @@ from Config import TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT, RANDOM_STATE
 import Utilities_lib as Ut_lib
 
 sys.path.insert(0, DATABASE_FOLDER)
-from DataBase_Functions import Custom_DataSet_Manager, Reconstruction_data_tests, Async_DataLoader, Random_Damage_Generator, augment_image_and_mask
+from DataBase_Functions import Custom_DataSet_Manager, Reconstruction_data_tests, Async_DataLoader, Random_Damage_Generator
 import Architectures
 import Inpainter_functions as Inp_f
 
