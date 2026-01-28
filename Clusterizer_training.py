@@ -94,7 +94,7 @@ if __name__ == '__main__':
 
     # Load the pre-trained model checkpoint
     print("\nŁadowanie modelu Inpainter...")
-    checkpoint = torch.load("InPainter/models/V5_baseline/best_inpainter.pth", map_location=device)
+    checkpoint = torch.load("InPainter/models/V5_baseline_January/best_inpainter.pth", map_location=device)
     full_state = checkpoint["encoder_state_dict"]
 
     # Initialize the encoder and load the filtered state dict
