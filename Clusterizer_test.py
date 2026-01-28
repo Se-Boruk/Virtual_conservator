@@ -50,7 +50,7 @@ if __name__ == '__main__':
     print("CUDA device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None")
 
     # Load the pre-trained model checkpoint
-    checkpoint = torch.load("InPainter/models/V5_Baseline/best_inpainter.pth", map_location=device)
+    checkpoint = torch.load("InPainter/models/V5_baseline_January/best_inpainter.pth", map_location=device)
     full_state = checkpoint["encoder_state_dict"]
 
     # Initialize the encoder and load the filtered state dict
