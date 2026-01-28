@@ -85,7 +85,7 @@ Reconstruction_data_tests(train_subset = Train_set,
 ###################################################################
 
 #Hyperparams for training
-model_ID = "V5_Baseline_January"
+model_ID = "V5_BASELINE_Fresh_decoder_January"
 baseline_model_path = "V5_Baseline_January"
 training_mode = "BASELINE"      #Training with no info about classes  (How model behaves without class info)
 #training_mode = "REAL"         #Training with info about classes from clusterizator 
@@ -195,7 +195,8 @@ Inpainter_decoder = Architectures.Inpainter_V5.Decoder(output_channels = input_c
 
 
 ##########################
-if training_mode != "BASELINE":
+#if training_mode != "BASELINE":    #Original
+if training_mode == "BASELINE":
     #Loading the trained encoder weights:
         
     pretrained_autoencoder_path = os.path.join("models", baseline_model_path, "best_inpainter.pth")
@@ -212,12 +213,21 @@ if training_mode != "BASELINE":
 #Optimizer
 #
 if training_mode == "BASELINE":
-
+    """
+    #Original
     Opt_inpainter = torch.optim.AdamW( list(Inpainter_encoder.parameters()) + list(Inpainter_decoder.parameters()),
                                       lr=lr,
                                       betas=(0.9, 0.999),
                                       weight_decay=1e-6 
                                       )
+    """
+    #New optimizer just for the decoder
+    Opt_inpainter = torch.optim.AdamW(
+        list(Inpainter_decoder.parameters()), 
+        lr=lr,
+        betas=(0.9, 0.999),
+        weight_decay=1e-6
+    )
 else:
     #New optimizer just for the decoder
     Opt_inpainter = torch.optim.AdamW(
@@ -457,25 +467,23 @@ try:
                         artificial_labels_aug = artificial_labels
                         
                     elif training_mode == "REAL":
-                       # Global average pooling to get feature vectors
-                       z0 = global_avg_pool(latent_tensor).view(latent_tensor.size(0), -1)
-                       z1 = global_avg_pool(latent_tensor_aug).view(latent_tensor.size(0), -1)
-                   
-                       # Project into PCA Space: (X - mu) @ V
-                       z0_pca = torch.mm(z0 - pca_mean, pca_components)
-                       z1_pca = torch.mm(z1 - pca_mean, pca_components)
-                   
-                       # Assign labels based on proximity to Centroids
-                       # distance matrix: [batch_size, n_clusters]
-                       dist_matrix0 = torch.cdist(z0_pca, kmeans_centroids)
-                       dist_matrix1 = torch.cdist(z1_pca, kmeans_centroids)
-                   
-                       # Predict cluster indices (Hard Assignment)
-                       artificial_labels = torch.argmin(dist_matrix0, dim=1).unsqueeze(1)
-                       artificial_labels_aug = torch.argmin(dist_matrix1, dim=1).unsqueeze(1)
+                        # 1. Global average pooling to get feature vectors
+                        z0 = global_avg_pool(latent_tensor).view(latent_tensor.size(0), -1)
+                        z1 = global_avg_pool(latent_tensor_aug).view(latent_tensor_aug.size(0), -1)
+                    
+                        # 2. Project into PCA Space: (X - mu) @ V
+                        z0_pca = torch.mm(z0 - pca_mean, pca_components)
+                        z1_pca = torch.mm(z1 - pca_mean, pca_components)
+                    
+                        # 3. Assign labels based on proximity to Centroids
+                        dist_matrix0 = torch.cdist(z0_pca, kmeans_centroids)
+                        dist_matrix1 = torch.cdist(z1_pca, kmeans_centroids)
+                    
+                        # 4. Predict cluster indices (Hard Assignment) + Match Dtype
+                        # .to(z0.dtype) ensures compatibility with autocast (float16/float32)
+                        artificial_labels = torch.argmin(dist_matrix0, dim=1).unsqueeze(1).to(z0.dtype)
+                        artificial_labels_aug = torch.argmin(dist_matrix1, dim=1).unsqueeze(1).to(z1.dtype)
                        
-                       artificial_labels = artificial_labels.to(z0.dtype)
-                       artificial_labels_aug = artificial_labels_aug.to(z0.dtype)
                         
                     elif training_mode == "ARTIFICIAL":
                         artificial_labels_aug = artificial_labels
@@ -547,7 +555,7 @@ try:
                 #Finished training step, log scores and calculate avg times
                 pbar.update(1)
                 pbar.set_postfix( { "train_loss": f"{Loss.item():.4f}" } )
-
+                
                 
                 
         #################################################
@@ -601,7 +609,7 @@ try:
                         #Palce for the clusterization from the latent tensor.
                         #Now its just filled with 0s for the baseline (if baseline is trained)
                         if training_mode == "BASELINE":
-                            bs = damaged_batch.shape[0]
+                            bs = damaged_batch_v.shape[0]
                             artificial_labels_v = torch.zeros(bs,1, device=damaged_batch_v.device)
                             artificial_labels_v_aug= artificial_labels_v
                             
@@ -620,12 +628,11 @@ try:
                             dist_matrix_v0 = torch.cdist(z0_v_pca, kmeans_centroids)
                             dist_matrix_v1 = torch.cdist(z1_v_pca, kmeans_centroids)
                             
-                            # Hard assignment of labels
-                            artificial_labels_v = torch.argmin(dist_matrix_v0, dim=1).unsqueeze(1)
-                            artificial_labels_v_aug = torch.argmin(dist_matrix_v1, dim=1).unsqueeze(1)
+                            # 4. Hard assignment of labels + Correct Dtype Casting
+                            # We cast to .to(z0_v.dtype) to match the decoder's expected input (float16/32)
+                            artificial_labels_v = torch.argmin(dist_matrix_v0, dim=1).unsqueeze(1).to(z0_v.dtype)
+                            artificial_labels_v_aug = torch.argmin(dist_matrix_v1, dim=1).unsqueeze(1).to(z1_v.dtype)
 
-                            artificial_labels_v = artificial_labels.to(z0.dtype)
-                            artificial_labels_v_aug = artificial_labels_aug.to(z0.dtype)
                             
                         else:
                             artificial_labels_v_aug = artificial_labels_v #Same as artificial
@@ -680,7 +687,7 @@ try:
                 avg_time = sum(batch_val_times) / max(1, len(batch_val_times))
                 pbar.update(1)
                 pbar.set_postfix({"avg_batch_time_ms": f"{avg_time*1000:.2f}", "val_loss_batch": f"{Loss_v.item():.4f}"})
-
+                
 
         #After epoch is finished
         ##########################################
