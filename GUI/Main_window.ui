@@ -45,7 +45,7 @@
            <string>Click to add image</string>
           </property>
           <property name="scaledContents">
-           <bool>false</bool>
+           <bool>true</bool>
           </property>
           <property name="alignment">
            <set>Qt::AlignCenter</set>
@@ -81,6 +81,13 @@
             </property>
            </spacer>
           </item>
+          <item>
+           <widget class="QCheckBox" name="CompareImageCheckBox">
+            <property name="text">
+             <string>Compare Image</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </item>
        </layout>
@@ -101,9 +108,20 @@
          <cursorShape>ArrowCursor</cursorShape>
         </property>
         <property name="styleSheet">
-         <string notr="true">background-color: rgb(65, 185, 21);
-font: 75 8pt &quot;MS Shell Dlg 2&quot;;
-font-weight: bold;
+         <string notr="true">
+  QPushButton {
+   background-color: rgb(65, 185, 21);
+   font: 75 8pt &quot;MS Shell Dlg 2&quot;;
+   font-weight: bold;
+   border: 1px solid rgb(50, 150, 15);
+   color: white;
+  }
+  QPushButton:hover {
+   background-color: rgb(85, 205, 41); /* Jaśniejszy zielony po najechaniu */
+  }
+  QPushButton:pressed {
+   background-color: rgb(45, 140, 15); /* Ciemniejszy po kliknięciu */
+  }
 </string>
         </property>
         <property name="text">
@@ -129,6 +147,9 @@ font-weight: bold;
       </item>
       <item>
        <widget class="QPushButton" name="btnExit">
+        <property name="enabled">
+         <bool>true</bool>
+        </property>
         <property name="minimumSize">
          <size>
           <width>0</width>
@@ -138,12 +159,39 @@ font-weight: bold;
         <property name="palette">
          <palette>
           <active>
+           <colorrole role="WindowText">
+            <brush brushstyle="SolidPattern">
+             <color alpha="255">
+              <red>255</red>
+              <green>255</green>
+              <blue>255</blue>
+             </color>
+            </brush>
+           </colorrole>
            <colorrole role="Button">
             <brush brushstyle="SolidPattern">
              <color alpha="255">
               <red>255</red>
               <green>69</green>
               <blue>7</blue>
+             </color>
+            </brush>
+           </colorrole>
+           <colorrole role="Text">
+            <brush brushstyle="SolidPattern">
+             <color alpha="255">
+              <red>255</red>
+              <green>255</green>
+              <blue>255</blue>
+             </color>
+            </brush>
+           </colorrole>
+           <colorrole role="ButtonText">
+            <brush brushstyle="SolidPattern">
+             <color alpha="255">
+              <red>255</red>
+              <green>255</green>
+              <blue>255</blue>
              </color>
             </brush>
            </colorrole>
@@ -167,12 +215,39 @@ font-weight: bold;
            </colorrole>
           </active>
           <inactive>
+           <colorrole role="WindowText">
+            <brush brushstyle="SolidPattern">
+             <color alpha="255">
+              <red>255</red>
+              <green>255</green>
+              <blue>255</blue>
+             </color>
+            </brush>
+           </colorrole>
            <colorrole role="Button">
             <brush brushstyle="SolidPattern">
              <color alpha="255">
               <red>255</red>
               <green>69</green>
               <blue>7</blue>
+             </color>
+            </brush>
+           </colorrole>
+           <colorrole role="Text">
+            <brush brushstyle="SolidPattern">
+             <color alpha="255">
+              <red>255</red>
+              <green>255</green>
+              <blue>255</blue>
+             </color>
+            </brush>
+           </colorrole>
+           <colorrole role="ButtonText">
+            <brush brushstyle="SolidPattern">
+             <color alpha="255">
+              <red>255</red>
+              <green>255</green>
+              <blue>255</blue>
              </color>
             </brush>
            </colorrole>
@@ -196,12 +271,39 @@ font-weight: bold;
            </colorrole>
           </inactive>
           <disabled>
+           <colorrole role="WindowText">
+            <brush brushstyle="SolidPattern">
+             <color alpha="255">
+              <red>255</red>
+              <green>255</green>
+              <blue>255</blue>
+             </color>
+            </brush>
+           </colorrole>
            <colorrole role="Button">
             <brush brushstyle="SolidPattern">
              <color alpha="255">
               <red>255</red>
               <green>69</green>
               <blue>7</blue>
+             </color>
+            </brush>
+           </colorrole>
+           <colorrole role="Text">
+            <brush brushstyle="SolidPattern">
+             <color alpha="255">
+              <red>255</red>
+              <green>255</green>
+              <blue>255</blue>
+             </color>
+            </brush>
+           </colorrole>
+           <colorrole role="ButtonText">
+            <brush brushstyle="SolidPattern">
+             <color alpha="255">
+              <red>255</red>
+              <green>255</green>
+              <blue>255</blue>
              </color>
             </brush>
            </colorrole>
@@ -227,8 +329,20 @@ font-weight: bold;
          </palette>
         </property>
         <property name="styleSheet">
-         <string notr="true">background-color: rgb(255, 69, 7);
-font: 75 8pt &quot;MS Shell Dlg 2&quot;;</string>
+         <string notr="true">
+  QPushButton {
+   background-color: rgb(255, 69, 7);
+   font: 75 8pt &quot;MS Shell Dlg 2&quot;;
+   color: white;
+   border: 1px solid rgb(200, 50, 5);
+  }
+  QPushButton:hover {
+   background-color: rgb(255, 100, 40); /* Jaśniejszy pomarańcz po najechaniu */
+  }
+  QPushButton:pressed {
+   background-color: rgb(200, 50, 0); /* Ciemniejszy po kliknięciu */
+  }
+ </string>
         </property>
         <property name="text">
          <string>Exit</string>

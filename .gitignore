@@ -8,6 +8,8 @@ InPainter/models/*
 InPainter/Model_graphs/*
 InPainter/train_loss_log.csv
 InPainter/.cometml-runs/*
+GUI/Test_images/*
+GUI/zapisane_klasy/*
 
 #Ignore these files
 #Some_file.py

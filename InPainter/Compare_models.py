@@ -21,9 +21,9 @@ from Config import TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT, RANDOM_STATE
 import Utilities_lib as Ut_lib
 
 sys.path.insert(0, DATABASE_FOLDER)
-from DataBase_Functions import Custom_DataSet_Manager, Reconstruction_data_tests, Async_DataLoader, Random_Damage_Generator, augment_image_and_mask
-import Architectures
-import Inpainter_functions as Inp_f
+from DataBase.DataBase_Functions import Custom_DataSet_Manager, Reconstruction_data_tests, Async_DataLoader, Random_Damage_Generator, augment_image_and_mask
+import InPainter.Architectures as Architectures
+import InPainter.Inpainter_functions as Inp_f
 
 # Metric libs
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
@@ -212,3 +212,49 @@ for i, (name, (enc, dec)) in enumerate(models_to_test.items()):
     viz.visualize(visual_batch, epoch=i, prefix=f"test_{name}")
 
 print("Visualizations complete.")
+
+###################################################################
+# ( 7 ) GUI function
+###################################################################
+import torchvision.transforms as T
+
+def InPainteR_GUI(input_tensor, output_name = 'FixedImage.jpg'):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    pca_components = torch.from_numpy(pca_loaded.components_).to(device).T.float()
+    pca_mean = torch.from_numpy(pca_loaded.mean_).to(device).float()
+    kmeans_centroids = torch.from_numpy(loaded_kmeans.cluster_centers_).to(device).float()
+    global_avg_pool = torch.nn.AdaptiveAvgPool2d((1, 1))
+
+    output_name = "GUI/" + output_name
+    encoder, decoder = load_model_pair("best_inpainter.pth", device)
+
+    with torch.no_grad():
+        # Enkoder: Obraz -> Latent + Skips
+        latent, skips = encoder(input_tensor)
+        s0, s1, s2 = skips
+        # 1. Global Average Pooling
+        z = global_avg_pool(latent).view(latent.size(0), -1)
+
+        # 2. Projekcja PCA
+        z_pca = torch.mm(z - pca_mean, pca_components)
+
+        # 3. Szukanie najbliższego centroidu (K-Means)
+        dist_matrix = torch.cdist(z_pca, kmeans_centroids)
+        class_vec = torch.argmin(dist_matrix, dim=1).unsqueeze(1).to(z.dtype)
+        print(f"Przypisana klasa (K-Means): {class_vec.item()}")  
+
+        # Dekoder: Latent -> Obraz
+        reconstructed = decoder(latent, s0, s1, s2, class_vec)
+            
+        # 4. Post-processing i zapis
+        # Odwrócenie normalizacji: (-1, 1) -> (0, 1)
+        reconstructed = (reconstructed + 1) / 2
+        reconstructed = torch.clamp(reconstructed, 0, 1)
+            
+        save_transform = T.ToPILImage()
+        result_img = save_transform(reconstructed.squeeze(0).cpu())
+        result_img.save(output_name) 
+
+    return output_name

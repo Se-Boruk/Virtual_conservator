@@ -16,6 +16,10 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+from Upscaling.Upscaling_GUI import upscale_x4_progressive as up
+from InPainter.Inpainter_GUI import InPainteR_GUI
+import random
+
 
 ###################################################################
 # ( 2 ) Class encoder, contains all functions for image processing
@@ -24,6 +28,7 @@ from PIL import Image
 class Encoder:
     def __init__(self):
         self.image_path = None
+        self.class_number = None
 
     def convert_to_arrow(self, path):
         """Converts a JPG image to an Apache Arrow Table"""
@@ -53,7 +58,7 @@ class Encoder:
             print(f"Błąd podczas konwersji obrazu: {e}")
             return None
         
-    def arrow_to_jpg(self, output_path="result.jpg"):
+    def arrow_to_jpg(self, output_path="result.png"):
         """Converts an Apache Arrow Table back to a JPG image"""
 
         output_path = "GUI/" + output_path
@@ -69,7 +74,7 @@ class Encoder:
 
             # 3. Create a PIL image object and save as JPG
             img = Image.fromarray(img_data, 'RGB')
-            img.save(output_path, "JPEG")
+            img.save(output_path, "PNG")
 
             print(f"Sukces: Obraz został odtworzony i zapisany w {output_path}")
             return output_path
@@ -78,11 +83,12 @@ class Encoder:
             print(f"Błąd konwersji z Arrow do JPG: {e}")
             return None
         
-    def save_tensor_as_jpg(self, image_tensor, output_path="damaged_output.jpg"):
+    def save_tensor_as_png(self, image_tensor, output_path="damaged_output.png"):
         """
         image_tensor: Tensor of shape (1, C, H, W) or (C, H, W) in range [0, 1]
         output_path: File save path
         """
+        output_path = "GUI/" + output_path
         # Remove the Batch dimension (if it exists) and move to CPU
         if image_tensor.dim() == 4:
             image_tensor = image_tensor.squeeze(0)
@@ -97,14 +103,10 @@ class Encoder:
         final_image = Image.fromarray(img_np)
         final_image.save(output_path, quality=95)
         return output_path
-
-    def crash_image(self):
-        print("Crashing image...")
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-        try:
+    
+    def jpg_to_tensor(self, image_path, device):
             # Load, convert to RGB and resize (class default uses shape 256x256)
-            original_pil = Image.open(self.image_path).convert("RGB")
+            original_pil = Image.open(image_path).convert("RGB")
             original_pil = original_pil.resize((256, 256)) 
             
             # Convert to numpy array and normalize to [0, 1] range
@@ -113,6 +115,15 @@ class Encoder:
             # Convert to PyTorch tensor: (H, W, C) -> (C, H, W) -> (B, C, H, W)
             # B (Batch) = 1
             img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device)
+
+            return img_tensor
+
+    def crash_image(self):
+        print("Crashing image...")
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        try:
+            img_tensor = self.jpg_to_tensor(self.image_path, device=device)
         except FileNotFoundError:
             # If the file is not found, generate noise so the code remains functional
             print("Nie znaleziono pliku, używam losowego szumu.")
@@ -129,21 +140,22 @@ class Encoder:
         # Add channel dimension to the mask: (B, 1, H, W)
         damaged_img_tensor = img_tensor * (1.0 - mask.unsqueeze(1))
 
-        damaged_image_path = self.save_tensor_as_jpg(damaged_img_tensor, "crashed_image.jpg")
-        
-        crashed_img = self.convert_to_arrow(damaged_image_path)
-        self.crashed_img_arrow = crashed_img
-        return damaged_image_path
+        self.damaged_image_path = self.save_tensor_as_png(damaged_img_tensor, "crashed_image.png")
+
+        return self.damaged_image_path
 
     def Auto_encode(self):
-        print("Auto encoding image...")
-        self.fixed_image = self.crashed_img_arrow
-        return self.arrow_to_jpg("fixed_image.jpg")
+        print("Fixing image...")
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        img_tensor = self.jpg_to_tensor(self.damaged_image_path, device=device)
+        # InPainteR_GUI(img_tensor, "FixedImg.jpg")
+        self.fixed_img_path, self.class_number = InPainteR_GUI(img_tensor, "fixed_image.png")
+        return self.fixed_img_path
 
     def upscaler(self):
         print("Upscaling image...")
-        self.upscaled_image = self.fixed_image
-        return self.arrow_to_jpg("upscaled_image.jpg")
+        return up(image_path= self.fixed_img_path, output_name="upscaled_image.png")
+
     
 ###################################################################
 # ( 3 ) Class GUI, responsible for the graphical interface
@@ -154,6 +166,7 @@ class GUI():
         self.window = None
         self.second_window = None
         self.third_window = None 
+        self.fourth_window = None 
         self.image = None 
 
     def klikniecie_w_obraz(self, event):
@@ -188,12 +201,12 @@ class GUI():
                 self.window.imageLabel.setPixmap(skalowane_foto)
                 self.window.imageLabel.setText("")  # Clear the "Brak zdjęcia" (No image) text
                 self.window.btnStart.setEnabled(True)
-                self.aktualizuj_status("Click start to process the image")
+                self.status_update("Click start to process the image")
     
-    def drugie_okno(self):
-        """Function loading and displaying Second_window.ui"""
+    def open_second_window(self):
+        """Function loading and displaying Fix_Image_window.ui"""
         # Change status to processing
-        self.aktualizuj_status("Processing...")
+        self.status_update("Processing...")
         QCoreApplication.processEvents() # Refresh UI so the label updates
         
         # Simulate processing time (e.g., 1 second)
@@ -202,18 +215,18 @@ class GUI():
         # Load the second window if it doesn't exist yet
         if self.second_window is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            second_ui_path = os.path.join(current_dir, "GUI/Second_window.ui")
+            second_ui_path = os.path.join(current_dir, "GUI/Fix_Image_window.ui")
             self.second_window = uic.loadUi(second_ui_path)
 
         # Display the second window
         self.second_window.show()
         
-        self.aktualizuj_status("Done! Window opened.")
+        self.status_update("Done! Window opened.")
 
-    def trzecie_okno(self):
-        """Function loading and displaying Third_window.ui"""
+    def open_third_window(self):
+        """Function loading and displaying Fix_&_Upscale_Image.ui"""
         # Change status to processing
-        self.aktualizuj_status("Processing...")
+        self.status_update("Processing...")
         QCoreApplication.processEvents() # Refresh UI so the label updates
         
         # Simulate processing time (e.g., 1 second)
@@ -222,47 +235,119 @@ class GUI():
         # Load the third window if it doesn't exist yet
         if self.third_window is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            third_ui_path = os.path.join(current_dir, "GUI/Third_window.ui")
+            third_ui_path = os.path.join(current_dir, "GUI/Fix_&_Upscale_Image.ui")
             self.third_window = uic.loadUi(third_ui_path)
 
         # Display the third window
         self.third_window.show()
         
-        self.aktualizuj_status("Done! Window opened.")
+        self.status_update("Done! Window opened.")
+
+    def open_fourth_window(self):
+        """Function loading and displaying Third_window.ui"""
+        # Change status to processing
+        self.status_update("Processing...")
+        QCoreApplication.processEvents() # Refresh UI so the label updates
+        
+        # Simulate processing time (e.g., 1 second)
+        time.sleep(1)
+
+        # Load the third window if it doesn't exist yet
+        if self.fourth_window is None:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            fourth_ui_path = os.path.join(current_dir, "GUI/Compare_Image.ui")
+            self.fourth_window = uic.loadUi(fourth_ui_path)
+
+        # Display the third window
+        self.fourth_window.show()
+        
+        self.status_update("Done! Window opened.")
 
     def wyczysc_wszystko(self):
         """Function to clear image and reset status"""
         self.window.imageLabel.clear()
         self.window.imageLabel.setText("Click to add image")
-        self.aktualizuj_status("Image cleared. Click to add a new image.")
+        self.status_update("Image cleared. Click to add a new image.")
         self.window.btnStart.setEnabled(False)
+    
+    def load_image_from_class(self, class_no):
+        folder_path = os.path.join("GUI", "zapisane_klasy", str(class_no))
+        if not os.path.exists(folder_path):
+            print(f"BŁĄD: Folder klasy nie istnieje: {folder_path}")
+            return []
+        
+        try:
+            all_files = os.listdir(folder_path)
+            valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp')
+            images = [f for f in all_files if f.lower().endswith(valid_extensions)]
+        except Exception as e:
+            print(f"Błąd odczytu folderu: {e}")
+            return []
+        
+        if len(images) < 4:
+            selected_files = images
+            print(f"Uwaga: W klasie {class_no} znaleziono tylko {len(images)} zdjęć.")
+        else:
+            selected_files = random.sample(images, 4)
+
+        # 5. Tworzenie pełnych ścieżek do plików
+        full_paths = [os.path.join(folder_path, f) for f in selected_files]
+        
+        return full_paths
+
 
     def start_process(self):
         """Function called on Start click - checks DropDown and selects window"""
         wybor = self.window.DropDown.currentText()
+        tick_box = self.window.CompareImageCheckBox.isChecked()
 
         E = Encoder()  # Initialize Encoder class
         E.image_path = self.image
         path1 = E.crash_image()
         path2 = E.Auto_encode()
         path3 = E.upscaler()
+        class_type = E.class_number
         
-        if wybor == "Fix image":
-            self.drugie_okno()
-            self.ustaw_obraz_w_labelu(self.second_window.Fixed_img, path2)
-            self.ustaw_obraz_w_labelu(self.second_window.Damaged_img, path1)
+        if wybor == "Fix image" and tick_box == False:
+            self.open_second_window()
+            self.Load_Image_To_Label(self.second_window.Fixed_img, path2)
+            self.Load_Image_To_Label(self.second_window.Damaged_img, path1)
 
-        elif wybor == "Fix & Upscale image":
-            self.trzecie_okno()
-            self.ustaw_obraz_w_labelu(self.third_window.Fixed_img, path2)
-            self.ustaw_obraz_w_labelu(self.third_window.Damaged_img, path1)
-            self.ustaw_obraz_w_labelu(self.third_window.Upscaled_img, path3)
+        elif wybor == "Fix & Upscale image" and tick_box == False:
+            self.open_third_window()
+            self.Load_Image_To_Label(self.third_window.Fixed_img, path2)
+            self.Load_Image_To_Label(self.third_window.Damaged_img, path1)
+            self.Load_Image_To_Label(self.third_window.Upscaled_img, path3)
+
+        elif wybor == "Fix image" and tick_box == True:
+            self.open_second_window()
+            self.Load_Image_To_Label(self.second_window.Fixed_img, path2)
+            self.Load_Image_To_Label(self.second_window.Damaged_img, path1)
+
+            self.open_fourth_window()
+            self.fourth_window.label.setText(f"Numer klasy: {class_type}")
+            Image_labels = [self.fourth_window.Image1, self.fourth_window.Image2, self.fourth_window.Image3, self.fourth_window.Image4]
+            examples = self.load_image_from_class(class_type)
+            for label, ex in zip(Image_labels, examples):
+                self.Load_Image_To_Label(label, ex)
+
+        elif wybor == "Fix & Upscale image" and tick_box == True:
+            self.open_third_window()
+            self.Load_Image_To_Label(self.third_window.Fixed_img, path2)
+            self.Load_Image_To_Label(self.third_window.Damaged_img, path1)
+            self.Load_Image_To_Label(self.third_window.Upscaled_img, path3)
             
-
+            self.open_fourth_window()
+            self.fourth_window.label.setText(f"Numer klasy: {class_type}")
+            Image_labels = [self.fourth_window.Image1, self.fourth_window.Image2, self.fourth_window.Image3, self.fourth_window.Image4]
+            examples = self.load_image_from_class(class_type)
+            for label, ex in zip(Image_labels, examples):
+                self.Load_Image_To_Label(label, ex)
+            
         else:
-            self.aktualizuj_status("Select an option first!")
+            self.status_update("Select an option first!")
 
-    def ustaw_obraz_w_labelu(self, label_obj, sciezka_obrazu):
+    def Load_Image_To_Label(self, label_obj, sciezka_obrazu):
         """Helper function to load an image into a specific label"""
         pixmap = QPixmap(sciezka_obrazu)
         if not pixmap.isNull():
@@ -273,7 +358,7 @@ class GUI():
             ))
             label_obj.setText("")
 
-    def aktualizuj_status(self, tekst):
+    def status_update(self, tekst):
         """Helper function to change the text in the bottom label"""
         self.window.label.setText(tekst)
 
