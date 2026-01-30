@@ -84,4 +84,4 @@ def InPainteR_GUI(input_tensor, output_name = 'FixedImage.png'):
         result_img = save_transform(reconstructed.squeeze(0).cpu())
         result_img.save(output_name) 
 
-    return output_name, random.randint(0,21)
+    return output_name, class_no

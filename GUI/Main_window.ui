@@ -81,13 +81,6 @@
             </property>
            </spacer>
           </item>
-          <item>
-           <widget class="QCheckBox" name="CompareImageCheckBox">
-            <property name="text">
-             <string>Compare Image</string>
-            </property>
-           </widget>
-          </item>
          </layout>
         </item>
        </layout>

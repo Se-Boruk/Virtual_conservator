@@ -19,6 +19,7 @@ from PIL import Image
 from Upscaling.Upscaling_GUI import upscale_x4_progressive as up
 from InPainter.Inpainter_GUI import InPainteR_GUI
 import random
+from Clustering.Clustering_GUI import Clustering
 
 
 ###################################################################
@@ -148,8 +149,8 @@ class Encoder:
         print("Fixing image...")
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         img_tensor = self.jpg_to_tensor(self.damaged_image_path, device=device)
-        # InPainteR_GUI(img_tensor, "FixedImg.jpg")
-        self.fixed_img_path, self.class_number = InPainteR_GUI(img_tensor, "fixed_image.png")
+        self.fixed_img_path, _ = InPainteR_GUI(img_tensor, "fixed_image.png")
+        self.class_number = Clustering(self.image_path)
         return self.fixed_img_path
 
     def upscaler(self):
@@ -299,7 +300,7 @@ class GUI():
     def start_process(self):
         """Function called on Start click - checks DropDown and selects window"""
         wybor = self.window.DropDown.currentText()
-        tick_box = self.window.CompareImageCheckBox.isChecked()
+        # tick_box = self.window.CompareImageCheckBox.isChecked()
 
         E = Encoder()  # Initialize Encoder class
         E.image_path = self.image
@@ -308,41 +309,44 @@ class GUI():
         path3 = E.upscaler()
         class_type = E.class_number
         
-        if wybor == "Fix image" and tick_box == False:
+        if wybor == "Fix image":
             self.open_second_window()
             self.Load_Image_To_Label(self.second_window.Fixed_img, path2)
             self.Load_Image_To_Label(self.second_window.Damaged_img, path1)
+            self.second_window.Class_no.setText(f"Numer klasy: {class_type}")
 
-        elif wybor == "Fix & Upscale image" and tick_box == False:
+
+        elif wybor == "Fix & Upscale image":
             self.open_third_window()
             self.Load_Image_To_Label(self.third_window.Fixed_img, path2)
             self.Load_Image_To_Label(self.third_window.Damaged_img, path1)
             self.Load_Image_To_Label(self.third_window.Upscaled_img, path3)
+            self.third_window.Class_no.setText(f"Numer klasy: {class_type}")
 
-        elif wybor == "Fix image" and tick_box == True:
-            self.open_second_window()
-            self.Load_Image_To_Label(self.second_window.Fixed_img, path2)
-            self.Load_Image_To_Label(self.second_window.Damaged_img, path1)
+        # elif wybor == "Fix image" and tick_box == True:
+        #     self.open_second_window()
+        #     self.Load_Image_To_Label(self.second_window.Fixed_img, path2)
+        #     self.Load_Image_To_Label(self.second_window.Damaged_img, path1)
 
-            self.open_fourth_window()
-            self.fourth_window.label.setText(f"Numer klasy: {class_type}")
-            Image_labels = [self.fourth_window.Image1, self.fourth_window.Image2, self.fourth_window.Image3, self.fourth_window.Image4]
-            examples = self.load_image_from_class(class_type)
-            for label, ex in zip(Image_labels, examples):
-                self.Load_Image_To_Label(label, ex)
+        #     # self.open_fourth_window()
+        #     # self.fourth_window.label.setText(f"Numer klasy: {class_type}")
+        #     # Image_labels = [self.fourth_window.Image1, self.fourth_window.Image2, self.fourth_window.Image3, self.fourth_window.Image4]
+        #     # examples = self.load_image_from_class(class_type)
+        #     # for label, ex in zip(Image_labels, examples):
+        #     #     self.Load_Image_To_Label(label, ex)
 
-        elif wybor == "Fix & Upscale image" and tick_box == True:
-            self.open_third_window()
-            self.Load_Image_To_Label(self.third_window.Fixed_img, path2)
-            self.Load_Image_To_Label(self.third_window.Damaged_img, path1)
-            self.Load_Image_To_Label(self.third_window.Upscaled_img, path3)
+        # elif wybor == "Fix & Upscale image" and tick_box == True:
+        #     self.open_third_window()
+        #     self.Load_Image_To_Label(self.third_window.Fixed_img, path2)
+        #     self.Load_Image_To_Label(self.third_window.Damaged_img, path1)
+        #     self.Load_Image_To_Label(self.third_window.Upscaled_img, path3)
             
-            self.open_fourth_window()
-            self.fourth_window.label.setText(f"Numer klasy: {class_type}")
-            Image_labels = [self.fourth_window.Image1, self.fourth_window.Image2, self.fourth_window.Image3, self.fourth_window.Image4]
-            examples = self.load_image_from_class(class_type)
-            for label, ex in zip(Image_labels, examples):
-                self.Load_Image_To_Label(label, ex)
+        #     # self.open_fourth_window()
+        #     # self.fourth_window.label.setText(f"Numer klasy: {class_type}")
+        #     # Image_labels = [self.fourth_window.Image1, self.fourth_window.Image2, self.fourth_window.Image3, self.fourth_window.Image4]
+        #     # examples = self.load_image_from_class(class_type)
+        #     # for label, ex in zip(Image_labels, examples):
+        #     #     self.Load_Image_To_Label(label, ex)
             
         else:
             self.status_update("Select an option first!")

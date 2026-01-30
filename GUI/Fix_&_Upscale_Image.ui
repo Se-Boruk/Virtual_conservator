@@ -125,11 +125,22 @@
     </layout>
    </item>
    <item>
-    <widget class="QPushButton" name="CloseButton">
-     <property name="text">
-      <string>Close</string>
-     </property>
-    </widget>
+    <layout class="QHBoxLayout" name="horizontalLayout_3">
+     <item>
+      <widget class="QLabel" name="Class_no">
+       <property name="text">
+        <string>Numer klasy:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="CloseButton">
+       <property name="text">
+        <string>Close</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
   </layout>
  </widget>
