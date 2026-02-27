@@ -3,11 +3,8 @@
 ###################################################################
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
-from DataBase.DataBase_Functions import Custom_DataSet_Manager as DB
-from DataBase.DataBase_Functions import Custom_DataSet_Manager as DB
 import torch
 import torch.nn.functional as F
-from InPainter.Architectures import Inpainter_V5 as Inp5
 from torch.utils.data import DataLoader
 import os
 from sklearn.decomposition import PCA
@@ -18,9 +15,20 @@ import time
 from sklearn.cluster import MiniBatchKMeans
 import joblib
 import matplotlib.pyplot as plt
-from Config import TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT, RANDOM_STATE
 from tqdm import tqdm
-from Config import DATABASE_FOLDER, RECONSTRUCTION_DATASET_PATH
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
+sys.path.insert(0, parent_dir)
+
+from Config import TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT, RANDOM_STATE, RECONSTRUCTION_DATASET_PATH, DATABASE_FOLDER
+from InPainter.Architectures import Inpainter_V5 as Inp5
+
+sys.path.insert(0, DATABASE_FOLDER)
+from DataBase.DataBase_Functions import Custom_DataSet_Manager as DB
+
+
 
 
 # Function to convert images to feature vectors using the encoder
@@ -70,7 +78,7 @@ def collate_fn_images_only(batch):
 ###################################################################
 if __name__ == '__main__':
     manager = DB(
-        DataSet_path=RECONSTRUCTION_DATASET_PATH,
+        DataSet_path = RECONSTRUCTION_DATASET_PATH,
         train_split=TRAIN_SPLIT,
         val_split=VAL_SPLIT,
         test_split=TEST_SPLIT,
@@ -96,7 +104,7 @@ if __name__ == '__main__':
 
     # Load the pre-trained model checkpoint
     print("\nŁadowanie modelu Inpainter...")
-    checkpoint = torch.load("InPainter/V5_baseline.pth", map_location=device)
+    checkpoint = torch.load("InPainter/models/V5_baseline_January/best_inpainter.pth", map_location=device)
     full_state = checkpoint["encoder_state_dict"]
 
     # Initialize the encoder and load the filtered state dict
@@ -128,7 +136,7 @@ if __name__ == '__main__':
     features_list = Image_to_vector(test_dataloader, device, encoder, BATCH_SIZE)
     #Prepartion for clustering
     pca = PCA(n_components=10)
-
+    
     # HDBSCAN clustering
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=40,       # minimum size of clusters
@@ -181,5 +189,7 @@ if __name__ == '__main__':
     # Save the MiniBatchKMeans model
     filename = 'minibatch_kmeans_model.joblib'
     joblib.dump(kmeans, filename)
+    
+    joblib.dump(pca, 'pca_model.joblib')
 
     print(f"\nModel został zapisany jako {filename}")

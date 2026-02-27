@@ -4,11 +4,10 @@
 
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
-from DataBase.DataBase_Functions import Custom_DataSet_Manager as DB
-from DataBase.DataBase_Functions import Custom_DataSet_Manager as DB
+
 import torch
 import torch.nn.functional as F
-from InPainter.Architectures import Inpainter_V5 as Inp5
+
 from torch.utils.data import DataLoader
 import os
 from sklearn.decomposition import PCA
@@ -16,17 +15,27 @@ from collections import Counter
 import torchvision.transforms as T
 import joblib
 import matplotlib.pyplot as plt
-from Config import TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT, RANDOM_STATE
+import sys
 from Clusterizer_training import collate_fn_images_only, Image_to_vector
 import numpy as np
-from Config import DATABASE_FOLDER, RECONSTRUCTION_DATASET_PATH
+
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
+sys.path.insert(0, parent_dir)
+from Config import TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT, RANDOM_STATE, RECONSTRUCTION_DATASET_PATH, DATABASE_FOLDER
+from InPainter.Architectures import Inpainter_V5 as Inp5
+
+sys.path.insert(0, DATABASE_FOLDER)
+from DataBase.DataBase_Functions import Custom_DataSet_Manager as DB
+
 
 ###################################################################
 # ( 2 ) Loading data
 ###################################################################
 if __name__ == '__main__':
     manager = DB(
-        DataSet_path=RECONSTRUCTION_DATASET_PATH,
+        DataSet_path = RECONSTRUCTION_DATASET_PATH,
         train_split=TRAIN_SPLIT,
         val_split=VAL_SPLIT,
         test_split=TEST_SPLIT,
@@ -51,7 +60,7 @@ if __name__ == '__main__':
     print("CUDA device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None")
 
     # Load the pre-trained model checkpoint
-    checkpoint = torch.load("InPainter/V5_baseline.pth", map_location=device)
+    checkpoint = torch.load("InPainter/models/V5_baseline_January/best_inpainter.pth", map_location=device)
     full_state = checkpoint["encoder_state_dict"]
 
     # Initialize the encoder and load the filtered state dict
@@ -83,12 +92,16 @@ if __name__ == '__main__':
     features_list = Image_to_vector(test_dataloader, device, encoder, BATCH_SIZE)
 
     #Reduction of dimensions with PCA
-    pca = PCA(n_components=10)
-    X_reduced = pca.fit_transform(features_list)
+    pca_loaded = joblib.load('pca_model.joblib')
+    
+    X_reduced = pca_loaded.transform(features_list)
 
     #KMeans clustering
     loaded_kmeans = joblib.load('minibatch_kmeans_model.joblib')
     labels_loaded = loaded_kmeans.predict(X_reduced)
+    
+
+    
     counts = dict(Counter(labels_loaded))
 
     # Plotting KMeans clustering results

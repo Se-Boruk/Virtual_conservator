@@ -1,13 +1,21 @@
 # Ignore everything in these directories
 DataBase/*
 __pycache__/*
+.vscode/*
+.ipynb_checkpoints/*
+
 
 InPainter/__pycache__
 InPainter/Restored_paintings/*
-InPainter/models/*
 InPainter/Model_graphs/*
 InPainter/train_loss_log.csv
 InPainter/.cometml-runs/*
+
+!InPainter/Restored_paintings/.gitkeep
+
+Clustering/__pycache__
+
+Upscaling/__pycache__
 
 #Ignore these files
 #Some_file.py

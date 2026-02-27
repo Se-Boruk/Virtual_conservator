@@ -9,7 +9,7 @@ import joblib
 from tqdm import tqdm
 import torch
 import torch.nn.functional as F
-
+import comet_ml
 
 # Path setup
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +21,7 @@ from Config import TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT, RANDOM_STATE
 import Utilities_lib as Ut_lib
 
 sys.path.insert(0, DATABASE_FOLDER)
-from DataBase_Functions import Custom_DataSet_Manager, Reconstruction_data_tests, Async_DataLoader, Random_Damage_Generator
+from DataBase_Functions import Custom_DataSet_Manager, Reconstruction_data_tests, Async_DataLoader, Random_Damage_Generator, augment_image_and_mask
 import Architectures
 import Inpainter_functions as Inp_f
 
@@ -64,7 +64,7 @@ n_residual_blocks = 6
 base_filters = 32
 Visualization_rows = 9
 
-baseline_model_path = "models/V5_Baseline_January" 
+baseline_model_path = "models/V5_BASELINE_Fresh_decoder_January" 
 
 # Loss Weights from Inpainter_functions.py
 L1_W, L2_W, SSIM_W, TV_W = 1.0, 0.1, 0.05, 0.001
@@ -86,9 +86,9 @@ def load_model_pair(path, device):
 
 print("\nLoading weights...")
 models_to_test = {
-    "baseline": load_model_pair("models/V5_Baseline_January/best_inpainter.pth", device),
+    "baseline": load_model_pair("models/V5_BASELINE_Fresh_decoder_January/best_inpainter.pth", device),
     "real":     load_model_pair("models/V5_REAL_January/best_inpainter.pth", device),
-    "maxclass": load_model_pair("models/V5_REAL_January/best_inpainter.pth", device) # Using REAL weights for MaxClass comparison
+    "maxclass": load_model_pair("models/V5_ARTIFICIAL_January/best_inpainter.pth", device) # Using REAL weights for MaxClass comparison
 }
 
 # --- Load Clusterizer for the REAL model ---

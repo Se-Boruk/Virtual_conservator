@@ -85,11 +85,11 @@ Reconstruction_data_tests(train_subset = Train_set,
 ###################################################################
 
 #Hyperparams for training
-model_ID = "V5_BASELINE_Fresh_decoder_January"
+model_ID = "V5_ARTIFICIAL_January"
 baseline_model_path = "V5_Baseline_January"
-training_mode = "BASELINE"      #Training with no info about classes  (How model behaves without class info)
+#training_mode = "BASELINE"      #Training with no info about classes  (How model behaves without class info)
 #training_mode = "REAL"         #Training with info about classes from clusterizator 
-#training_mode = "ARTIFICIAL"   #Training with infor about classes from dataset (theoretical performance limit)
+training_mode = "ARTIFICIAL"   #Training with infor about classes from dataset (theoretical performance limit)
 
 
 
@@ -195,8 +195,8 @@ Inpainter_decoder = Architectures.Inpainter_V5.Decoder(output_channels = input_c
 
 
 ##########################
-#if training_mode != "BASELINE":    #Original
-if training_mode == "BASELINE":
+if training_mode != "BASELINE":    #Original
+
     #Loading the trained encoder weights:
         
     pretrained_autoencoder_path = os.path.join("models", baseline_model_path, "best_inpainter.pth")
@@ -213,21 +213,15 @@ if training_mode == "BASELINE":
 #Optimizer
 #
 if training_mode == "BASELINE":
-    """
+
     #Original
     Opt_inpainter = torch.optim.AdamW( list(Inpainter_encoder.parameters()) + list(Inpainter_decoder.parameters()),
                                       lr=lr,
                                       betas=(0.9, 0.999),
                                       weight_decay=1e-6 
                                       )
-    """
-    #New optimizer just for the decoder
-    Opt_inpainter = torch.optim.AdamW(
-        list(Inpainter_decoder.parameters()), 
-        lr=lr,
-        betas=(0.9, 0.999),
-        weight_decay=1e-6
-    )
+
+
 else:
     #New optimizer just for the decoder
     Opt_inpainter = torch.optim.AdamW(
