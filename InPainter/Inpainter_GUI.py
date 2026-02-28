@@ -53,7 +53,7 @@ def InPainteR_GUI(input_tensor, output_name = 'FixedImage.png'):
     global_avg_pool = torch.nn.AdaptiveAvgPool2d((1, 1))
 
     output_name = "GUI/" + output_name
-    encoder, decoder = load_model_pair("InPainter/models/best_inpainter.pth", device)
+    encoder, decoder = load_model_pair("InPainter/models/V5_REAL/best_inpainter.pth", device)
 
     with torch.no_grad():
         # Enkoder: Obraz -> Latent + Skips

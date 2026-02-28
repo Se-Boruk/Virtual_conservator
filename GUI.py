@@ -141,7 +141,7 @@ class Encoder:
         # Add channel dimension to the mask: (B, 1, H, W)
         damaged_img_tensor = img_tensor * (1.0 - mask.unsqueeze(1))
 
-        self.damaged_image_path = self.save_tensor_as_png(damaged_img_tensor, "crashed_image.png")
+        self.damaged_image_path = self.save_tensor_as_png(damaged_img_tensor, "GUI_outputs/crashed_image.png")
 
         return self.damaged_image_path
 
@@ -149,13 +149,13 @@ class Encoder:
         print("Fixing image...")
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         img_tensor = self.jpg_to_tensor(self.damaged_image_path, device=device)
-        self.fixed_img_path, _ = InPainteR_GUI(img_tensor, "fixed_image.png")
+        self.fixed_img_path, _ = InPainteR_GUI(img_tensor, "GUI_outputs/fixed_image.png")
         self.class_number = Clustering(self.image_path)
         return self.fixed_img_path
 
     def upscaler(self):
         print("Upscaling image...")
-        return up(image_path= self.fixed_img_path, output_name="upscaled_image.png")
+        return up(image_path= self.fixed_img_path, output_name="GUI_outputs/upscaled_image.png")
 
     
 ###################################################################
