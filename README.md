@@ -39,7 +39,14 @@ It both increases the raw resolution, as well as it adds details not present pre
 | :---: | :---: |
 | <img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/042222-256x256.png?raw=true" width="400" /> | <img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/result_1024x1024.png?raw=true" width="400" /> |
 
+## GUI
+For live usage it is possible to run the GUI (GUI.py) and test functionality in live demo. Few images are given in the GUI folder, but you can choose any image format files from your PC. It works well with other type of images than paintings too.
 
+#### Main window
+<img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/GUI_preview_1.png?raw=true" width="360">
+
+#### Results of image restoration
+<img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/GUI_preview_2.png?raw=true" width="560">
 
 ## Project is separated into 4 main modules which corresponding files, models etc. can be found in their respective directories:
 - **DataBase**:
