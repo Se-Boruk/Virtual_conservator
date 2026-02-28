@@ -1,81 +1,66 @@
-﻿# Painting style recognition using traditional image analysis techniques - Project
-<img src="https://github.com/Se-Boruk/AoC_project/blob/master/Visuals/Logo.jpg?raw=true" width="780">
+﻿# Virtual Conservator - Project
+<img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/Project_logo.png?raw=true" width="580">
 
 This project was part of the Artificial Intelligence & Machine Learning course.
 
-It focuses on creating method for classifying painting styles across images with traditional image analysis techniques. Without using any form of neural networks.
+It focused on creating creating pipeline for complete painting restoration which included:<br>
+**1) Inpainter**: To repair damaged images by filling missing regions<br>
+**2) Clusterizer**: To classify images (and use this information to potentially help in reconstruction)<br>
+**3) Upscaler:** To upscale restored image up to 4x of its original resolution
 
-## Project contains scripts:
-- **Config.py**:
-  > Most important parameters
-- **Main.py**:
-  > The primary execution script. It manages the training pipeline, including PCA, data scaling, and SVM model fitting
-- **Data_analysis.py**:
-  > Diagnostic script used to visualize class distributions and histograms to identify dataset imbalances
-- **Functions.py**:
-  > Library containing the logic for feature extraction (Color, Texture, Shape) and model evaluation helpers
-- **RFE.py**:
-  > Feature optimization script. Implements Recursive Feature Elimination to rank and prune feature groups for better model efficiency 
-- **Model_Validation.py**:
-  > Experimental notebook used for analyzing Recursive Feature Elimination (RFE) results and testing stylistic image similarity. Also used for creation of the final report.    
+## Project overview
 
-### Due to the file size, project does not contains:
-- Training dataset
-- Trained models (not as big but can be trained relatively easy trained. (Useless without database anyway as it's mostly isolated project)
+#### Datasets used:
+- Inpainter / Clusterizer: "Artificio/WikiArt" [ https://huggingface.co/datasets/Artificio/WikiArt ]
+- Upscaler: "huggan/wikiart" [ https://huggingface.co/datasets/huggan/wikiart ]
 
-## Explanation of concept
+#### Data processing & model training pipeline:
+<img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/Pipeline.png?raw=true" width="580">
 
-Instead of using "black-box" AI, we used shallow learning to decode artistic styles by turning visual features into numerical ones. We manually extracted features like color distributions, brushstroke textures (LBP), and geometric shapes (HOG) to build a unique mathematical "fingerprint" for movements like Impressionism or Cubism. 
+#### Potential damage masks:
+<img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/Damage_masks.png?raw=true" width="420">
 
-These methods allows for good statisctical description of basic concepts, colors, objects which translate into the painting style.
 
-## End Project pipeline (after initial experiments)
-- **Data Preprocessing**: Preparing the WikiArt database to optimized format (.arrow) + resizing to 512x512 size. In some cases also filtering data to merge styles under a 2.5% threshold into single class
-
-- **Feature Extraction**: Running a parallel pipeline to extract features from images
-
-- **Optimization**: Using RFE to rank features and PCA to condense the data while keeping 99% of the important info.
-
-- **Model Training**: Teaching an SVM classifier to recognize styles using Nystroem RBF kernel approximation.
-
-- **Testing**: Measuring accuracy and building a tool to find similar-looking paintings
-
+For a comprehensive overview of the entire project, we highly encourage reviewing the **Final_presentation** file (currently only in PL)
 
 ## Results
-The model recognized the exact style correctly **37.7%** of the time, but it was remarkably accurate at getting the correct style into its "top five" list—reaching nearly **80%**. 
+Proposed method allows **high-level reconstruction** of damaged painting and general clusterization (however metrics indicates that InPainter did not benefit from class information).
 
-### Confusion matrix ; Final model
-<img src="https://github.com/Se-Boruk/AoC_project/blob/master/Visuals/SVM_full_scores.png?raw=true" width="780">
 
-### Accuracy scores ; Final model
+Test set example reconstructions
+<img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/test_real_0001.png?raw=true" width="800">
 
-<img src="https://github.com/Se-Boruk/AoC_project/blob/master/Visuals/Top_n_accuracy.png?raw=true" width="780">
 
-We also found that **edge statistics feature extractor** is the strongest giveaway for art styles, while some other extractors especially these based on the image frequency attributes were not as much helpful.
+Additionally we can further increase quality of the painting by using **Upscaling model**.
+It both increases the raw resolution, as well as it adds details not present previously in the image.
 
-## Output vector similarity
-One of the additional tasks inside the project was to find similar paintings. 
 
-We calculate the Euclidean distance between their feature vectors. If two images have similar feature vectors, that means they most likely are visually similar to each other.
+| 256x256 Input | SRCNN x4 Output (1024x204) |
+| :---: | :---: |
+| <img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/042222-256x256.png?raw=true" width="400" /> | <img src="https://github.com/Se-Boruk/Virtual_conservator/blob/master/Assets/result_1024x1024.png?raw=true" width="400" /> |
 
-The system identified the closest neighbours in this space to show which paintings are statistically related, regardless of what style they actually represent.
 
-### Set of 5 nearest neighbours to the random image
 
-<img src="https://github.com/Se-Boruk/AoC_project/blob/master/Visuals/Similar_imgs_1.jpg?raw=true" width="780">
+## Project is separated into 4 main modules which corresponding files, models etc. can be found in their respective directories:
+- **DataBase**:
+  > This folder contains database, scripts neccessary to download, process and manage it. All other modules use the methods from this module 
 
-<img src="https://github.com/Se-Boruk/AoC_project/blob/master/Visuals/Similar_imgs_2.jpg?raw=true" width="780">
+- **Inpainter**:
+  > This folder contains scripts responsible for Inpainter training and testing. It contains as well training logs, architectures of models used through the project and trained models themselves
 
-## Details
+- **Clustering**:
+  > This folder contains scripts related to the Clusterizer training as well as trained PCA and KMeans Clusterizers ready to be used
 
-To acces more information you can view the **report** or the **presentation** which are located in the **"Report"** folder
+- **Upscaler**:
+  > This folder stores jupyter notebook used in Upscaler training and trained Upscaler model
+
 
 ## Contributors
-**Sebastian Borukało (Se-Boruk)**: Conceptualization, Methodology, Software, Validation, Formal Analysis, Investigation, Data Curation 
+**Sebastian Borukało (Se-Boruk)**: Inpainting, Project management, Data pipeline and processing
 
-**Jakub Bukała (Kuba917)**: Conceptualization, Methodology, Software, Validation, Formal Analysis, Investigation, Data Curation
+**Jakub Bukała (Kuba917)**: Clusterization, GUI / working LIVE Demo
 
-**Jakub Smakowski (CodeExplorerPL)**: Conceptualization, Methodology, Validation, Formal Analysis, Writing - Original Draft, Writing - Review & Editing, Visualization
+**Jakub Smakowski (CodeExplorerPL)**: Upscaling, Data pipeline and processing
 
 
 
